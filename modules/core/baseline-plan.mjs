@@ -21,15 +21,16 @@ export function baselinePlan(source, target) {
         path: diagnostic.path ?? null, evidence: diagnostic.evidence, occurrences,
         position: { offset: diagnostic.offset, line: diagnostic.line, column: diagnostic.column },
         kind: diagnostic.code === 'duplicate_key' ? (identical ? 'identical_duplicate' : 'conflicting_duplicate') : diagnostic.code,
+        requires_integrator_decision: !identical,
         required_action: diagnostic.code === 'duplicate_key'
-          ? identical ? 'Record a retained occurrence and preserve every section/context in the resolution audit.' : 'Integrator must explicitly choose the effective occurrence; no last-value fallback.'
+          ? identical ? 'Exporter can deduplicate identical values while recording all occurrences and contexts; no translation approval is invented.' : 'Use the agreed human duplicate-resolutions ledger for target conflicts; source conflicts remain blocked.'
           : diagnostic.code === 'invalid_resource_name' ? 'Integrator must approve a collision-free rename or metadata migration and its effect on application references.'
           : 'Integrator must resolve this structural defect against the original file hash.',
         decision: null
       });
     }
   }
-  return { format: 'locqa-core-baseline-plan/v1', scope: 'arb_structure_only', status: issues.length ? 'needs_integrator_decisions' : 'no_structural_decisions',
+  return { format: 'locqa-core-baseline-plan/v1', scope: 'arb_structure_only', status: issues.some(i => i.requires_integrator_decision) ? 'needs_integrator_decisions' : issues.length ? 'identical_duplicates_audit_required' : 'no_structural_decisions',
     source_sha256: source.sha256, target_sha256: target.sha256, decisions_applied: 0,
     issues, note: 'Diagnostic draft only. Originals remain the baseline; filling this file is not authorization to change translations or proof of human linguistic review.' };
 }

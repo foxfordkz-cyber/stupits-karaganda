@@ -5,10 +5,11 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
-import { readArb, checkArbs, exportApproved } from '../index.mjs';
+import { readArb, checkArbs, checkBundle, normalizeArbs, exportApproved } from '../index.mjs';
 import { parseGlossary } from '../glossary.mjs';
 import { assertFlutterEvidence } from '../flutter.mjs';
 import { assertContract, hashText } from '../../../src/contracts.mjs';
+import { runPipeline } from '../../../src/pipeline.mjs';
 
 const fixture = path => readFile(new URL('../../../fixtures/synthetic/' + path, import.meta.url), 'utf8');
 const arb = (locale, values) => JSON.stringify({ '@@locale': locale, ...values }, null, 2);
@@ -267,8 +268,59 @@ test('newlines, printf, tags and private glyph survive valid approval exactly', 
   assert.equal(readArb(exported(source, original, approved).text).groups.get('greeting')[0].value, approved);
 });
 
-test('export blocks conflicting and identical ordinary duplicates', () => {
-  for (const second of ['Hi', 'Other']) assert.throws(() => exportApproved({ sourceText: arb('ru', { greeting: 'Hello' }), targetText: '{"@@locale":"kk","greeting":"Hi","greeting":' + JSON.stringify(second) + '}', reviews: emptyReviews() }), /duplicate_key/);
+test('identical duplicates are removed with full occurrence audit and unchanged original effective value', () => {
+  const sourceText = '{"@@locale":"ru","greeting":"Hello","greeting":"Hello"}';
+  const targetText = '{"@@locale":"kk","@@comment":"first","greeting":"Hi","@@comment":"second","greeting":"Hi"}';
+  const result = exportApproved({ sourceText, targetText, reviews: emptyReviews() });
+  const parsed = readArb(result.text);
+  assert.equal(parsed.groups.get('greeting').length, 1);
+  assert.equal(parsed.groups.get('greeting')[0].value, 'Hi');
+  assert.equal(parsed.properties.filter(p => p.key === '@@comment').length, 2);
+  assert.equal(result.audit.duplicate_audit.source[0].occurrences.length, 2);
+  assert.deepEqual(result.audit.duplicate_audit.target[0].occurrences.map(p => p.section), ['first', 'second']);
+  assert.equal(result.audit.original_sha256, hashText(targetText));
+  assert.equal(result.audit.changed_count, 0);
+});
+
+function duplicateFixture(occurrence = 2) {
+  const sourceText = arb('ru', { greeting: 'Hello' }), targetText = '{"@@locale":"kk","greeting":"First","greeting":"Last"}';
+  const resolutions = { schema_version: '1.0', source_sha256: hashText(sourceText), original_target_sha256: hashText(targetText), decisions: [{
+    key: 'greeting', occurrence, chosen_hash: hashText(occurrence === 1 ? 'First' : 'Last'), reviewer: 'TEST_DOUBLE_NOT_A_HUMAN_REVIEW', reviewed_at: '2026-10-30T00:00:00Z', reviewed_by_human: true
+  }] };
+  return { sourceText, targetText, reviews: emptyReviews(), resolutions };
+}
+
+test('conflicting duplicates require complete version-bound explicit resolutions', () => {
+  const input = duplicateFixture();
+  assert.throws(() => exportApproved({ ...input, resolutions: undefined }), /duplicate_key/);
+  assert.throws(() => exportApproved({ ...input, resolutions: { ...input.resolutions, decisions: [] } }), /duplicate_key/);
+  assert.throws(() => exportApproved({ ...input, targetText: input.targetText + '\n' }), /different source/);
+  assert.throws(() => exportApproved({ ...input, resolutions: { ...input.resolutions, decisions: [{ ...input.resolutions.decisions[0], chosen_hash: hashText('Wrong') }] } }), /hash mismatch/);
+  const result = exportApproved(input);
+  assert.equal(readArb(result.text).groups.get('greeting')[0].value, 'Last');
+  assert.equal(result.audit.release.resolved_duplicate_count, 1);
+  assert.equal(result.audit.changed_count, 0);
+  assert.equal(readArb(result.text).metadata.has('@greeting'), false);
+});
+
+test('earlier duplicate choice requires separate review bound to last original occurrence', () => {
+  const input = duplicateFixture(1);
+  assert.throws(() => exportApproved(input), /requires current translation approval/);
+  input.reviews.decisions.push(decision('Hello', 'Last', 'First', 'greeting', 2));
+  const result = exportApproved(input);
+  assert.equal(readArb(result.text).groups.get('greeting')[0].value, 'First');
+  assert.equal(result.audit.duplicate_audit.target[0].selected_occurrence, 1);
+  assert.deepEqual(result.audit.applied_entry_ids, ['greeting#2']);
+  const wrong = { ...input, reviews: { ...emptyReviews(), decisions: [decision('Hello', 'First', 'First', 'greeting', 1)] } };
+  assert.throws(() => exportApproved(wrong), /identity|Stale/);
+});
+
+test('source conflicts and unresolved additional target conflicts still block export', () => {
+  const input = duplicateFixture();
+  assert.throws(() => exportApproved({ ...input, sourceText: '{"@@locale":"ru","greeting":"Early","greeting":"Hello"}', resolutions: undefined }), /source.*duplicate_key/);
+  const targetText = input.targetText.slice(0, -1) + ',"extra":"One","extra":"Two"}';
+  const resolutions = { ...input.resolutions, original_target_sha256: hashText(targetText) };
+  assert.throws(() => exportApproved({ ...input, targetText, resolutions }), /extra.*duplicate_key/);
 });
 
 const cli = fileURLToPath(new URL('../cli.mjs', import.meta.url));
@@ -346,4 +398,46 @@ test('command-specific help works without requiring file arguments', () => {
     assert.equal(result.status, 0);
     assert.match(result.stdout, /--verify-flutter/);
   }
+});
+
+test('bundle detector matches raw detection and refuses inconsistent source bindings', async () => {
+  const input = { sourceText: await fixture('source.arb'), targetText: await fixture('target.arb') };
+  const glossaryText = await fixture('glossary.csv'), bundle = normalizeArbs(input).bundle;
+  assert.deepEqual(checkBundle(bundle, { glossaryText }).report, checkArbs({ ...input, glossaryText }).report);
+  const entry = bundle.entries.find(e => e.target !== null);
+  const mutated = { ...entry, occurrence: 2, entry_id: entry.key + '#2', source: 'Different', source_hash: hashText('Different') };
+  assert.throws(() => checkBundle({ ...bundle, entries: [...bundle.entries, mutated] }), /Conflicting source/);
+});
+
+test('real normalize/core adapters run in the integrator pipeline on newly added synthetic messages', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'locqa-pipeline-test-'));
+  const source = JSON.parse(await fixture('source.arb')); source.newPipelineMessage = 'Fresh invented message';
+  const target = await fixture('target.arb');
+  await writeFile(join(dir, 'source.arb'), JSON.stringify(source));
+  await writeFile(join(dir, 'target.arb'), target);
+  await writeFile(join(dir, 'glossary.csv'), await fixture('glossary.csv'));
+  const config = JSON.parse(await readFile(new URL('../../../contracts/examples/pipeline.json', import.meta.url), 'utf8'));
+  config.mode = 'synthetic'; config.working_directory = fileURLToPath(new URL('../../../', import.meta.url));
+  // Only the unavailable language/render stages use explicitly labelled fixtures.
+  const synthetic = JSON.parse(await fixture('adapters/pipeline.json'));
+  config.stages.language = synthetic.stages.language; config.stages.render = synthetic.stages.render;
+  await writeFile(join(dir, 'pipeline.json'), JSON.stringify(config));
+  const result = await runPipeline({ configPath: join(dir, 'pipeline.json'), source: join(dir, 'source.arb'), target: join(dir, 'target.arb'), glossary: join(dir, 'glossary.csv'), out: join(dir, 'run'), synthetic: true });
+  assert.equal(result.evidence.status, 'analysis_passed');
+  const report = JSON.parse(await readFile(join(dir, 'run', 'core-report.json'), 'utf8'));
+  assert.ok(report.some(f => f.key === 'newPipelineMessage' && f.issue_type === 'untranslated'));
+  assert.equal(report.length, 6);
+});
+
+test('file export adapter accepts agreed resolutions and never replaces existing outputs', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'locqa-stage-test-')), input = duplicateFixture();
+  for (const [name, text] of [['source.arb', input.sourceText], ['target.arb', input.targetText], ['reviews.json', JSON.stringify(input.reviews)], ['resolutions.json', JSON.stringify(input.resolutions)]]) await writeFile(join(dir, name), text);
+  const argv = ['--source', join(dir, 'source.arb'), '--target', join(dir, 'target.arb'), '--reviews', join(dir, 'reviews.json'), '--resolutions', join(dir, 'resolutions.json'), '--out', join(dir, 'fixed.arb')];
+  const runExport = () => spawnSync(process.execPath, [fileURLToPath(new URL('../export.mjs', import.meta.url)), ...argv], { encoding: 'utf8', timeout: 30000, windowsHide: true });
+  const result = runExport(); assert.equal(result.status, 0, result.stderr);
+  const text = await readFile(join(dir, 'fixed.arb'), 'utf8');
+  assert.equal(readArb(text).groups.get('greeting').length, 1);
+  assert.equal(runExport().status, 2);
+  assert.equal(await readFile(join(dir, 'fixed.arb'), 'utf8'), text);
+  assert.equal(await readFile(join(dir, 'target.arb'), 'utf8'), input.targetText);
 });

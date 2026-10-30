@@ -1,20 +1,29 @@
 import { modify, applyEdits } from 'jsonc-parser';
 import { assertContract, hashText } from '../../src/contracts.mjs';
 import { checkRelease } from '../../src/release-gate.mjs';
+import { verifyResolutions } from '../../src/duplicate-resolutions.mjs';
 import { readArb, localeOf, entryId } from './arb.mjs';
 import { inspectMessage, compareMessages, protectedTokens } from './messages.mjs';
+import { isDirect, stageMain, runExportStage } from './stages.mjs';
 
 const stampFields = ['reviewed_by_human', 'reviewer', 'reviewed_at', 'source_hash', 'original_hash', 'approved_hash'];
 const equal = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 
 // Pure function. The caller writes a NEW file only after every approval and
 // technical invariant has passed. There is intentionally no auto-approve API.
-export function exportApproved({ sourceText, targetText, reviews, sourceLocale, targetLocale }) {
+export function exportApproved({ sourceText, targetText, reviews, resolutions, sourceLocale, targetLocale }) {
   assertContract('reviews', reviews);
   const source = readArb(sourceText, 'source'), target = readArb(targetText, 'target');
   sourceLocale = localeOf(source, sourceLocale); targetLocale = localeOf(target, targetLocale);
   if (reviews.target_locale !== targetLocale) throw new Error('Reviews target_locale does not match target.');
-  const structural = [...source.diagnostics, ...target.diagnostics].filter(d => d.severity === 'error');
+  const resolved = verifyResolutions(resolutions, sourceText, targetText);
+  const structural = [...source.diagnostics, ...target.diagnostics].filter(d => {
+    if (d.severity !== 'error') return false;
+    if (d.code !== 'duplicate_key') return true;
+    const group = (d.side === 'source' ? source : target).groups.get(d.key);
+    const identical = new Set(group.map(p => p.value)).size === 1;
+    return !identical && !(d.side === 'target' && resolved.has(d.key));
+  });
   if (structural.length) throw new Error('Export blocked by ARB structure: ' + structural.map(d => `${d.side}/${d.key ?? d.path}: ${d.code}`).join('; '));
   for (const [key, group] of source.groups) {
     const message = inspectMessage(group[0].value, sourceLocale);
@@ -23,23 +32,39 @@ export function exportApproved({ sourceText, targetText, reviews, sourceLocale, 
   }
   const decisions = new Map(), changed = [], invalidated = [];
   for (const d of reviews.decisions) {
-    const original = target.groups.get(d.key)?.[0]?.value ?? null;
+    const group = target.groups.get(d.key);
+    const original = group?.at(-1)?.value ?? null;
     const sourceValue = source.groups.get(d.key)?.[0]?.value;
-    if (sourceValue === undefined || d.entry_id !== entryId(d.key, original === null ? 0 : 1)) throw new Error('Review identity does not match baseline: ' + d.entry_id);
+    if (sourceValue === undefined || d.entry_id !== entryId(d.key, group?.length ?? 0)) throw new Error('Review identity does not match baseline: ' + d.entry_id);
     if (d.source_hash !== hashText(sourceValue)) throw new Error('Stale source approval: ' + d.key);
     if (d.original_text !== original || d.original_hash !== hashText(original)) throw new Error('Stale original approval: ' + d.key);
     decisions.set(d.key, d);
   }
+  for (const [key, resolution] of resolved) {
+    const original = target.groups.get(key).at(-1).value, d = decisions.get(key);
+    if (resolution.chosen_text !== original && (!d || d.decision === 'rejected')) throw new Error('Choosing an earlier differing occurrence also requires current translation approval: ' + key);
+  }
   let text = targetText;
   const formattingOptions = { insertSpaces: true, tabSize: 2, eol: targetText.includes('\r\n') ? '\r\n' : '\n' };
   const set = (path, value) => { text = applyEdits(text, modify(text, path, value, { formattingOptions })); };
+  const duplicateAudit = { source: [], target: [] };
+  for (const [side, arb] of [['source', source], ['target', target]]) for (const [key, group] of arb.groups) {
+    if (group.length < 2) continue;
+    duplicateAudit[side].push({ key, original_effective_occurrence: group.length,
+      selected_occurrence: side === 'target' ? resolved.get(key)?.occurrence ?? group.length : group.length,
+      action: side === 'source' ? 'unchanged_identical_source_occurrences' : resolved.has(key) ? 'deduplicated_with_explicit_resolution' : 'deduplicated_identical_values',
+      occurrences: group.map(p => ({ occurrence: p.occurrence, text: p.value, text_hash: hashText(p.value), section: p.section, offset: p.offset, line: p.line, raw: p.raw })) });
+    if (side === 'target') for (let i = 1; i < group.length; i++) set([key], undefined);
+  }
+  const deduplicated = readArb(text);
+  for (const [key, group] of target.groups) if (deduplicated.groups.get(key)?.length !== 1 || deduplicated.groups.get(key)[0].value !== group.at(-1).value) throw new Error('Duplicate removal did not preserve the effective original value: ' + key);
   if (!target.metadata.has('@@locale')) set(['@@locale'], targetLocale);
   for (const [key, property] of target.metadata) {
     if (!key.startsWith('@') || key.startsWith('@@')) continue;
     const stamp = property.value?.['x-locqa'];
     if (!stamp) continue;
     const d = decisions.get(key.slice(1));
-    const current = target.groups.get(key.slice(1))?.[0]?.value;
+    const current = target.groups.get(key.slice(1))?.at(-1)?.value;
     const valid = stamp.reviewed_by_human === true && d && d.decision !== 'rejected' && current === d.approved_text && stampFields.every(field => stamp[field] === d[field]);
     // False/test stamps are retained as false. Unverifiable true stamps must not
     // survive as claims about a changed source/target/version.
@@ -70,7 +95,7 @@ export function exportApproved({ sourceText, targetText, reviews, sourceLocale, 
     if (errors.length) throw new Error(`Export blocked by technical mismatch for ${key}: ${errors.join('; ')}`);
     if (!equal(protectedTokens(sourceValue), protectedTokens(value))) throw new Error('Export would change protected source tokens: ' + key);
     if (changed.includes(key)) {
-      const oldValue = target.groups.get(key)?.[0]?.value;
+      const oldValue = target.groups.get(key)?.at(-1)?.value;
       // Existing target-only special symbols are not discarded by a correction.
       // A conflicting baseline needs an explicitly coordinated resolution.
       if (oldValue !== undefined) {
@@ -84,9 +109,11 @@ export function exportApproved({ sourceText, targetText, reviews, sourceLocale, 
       }
     }
   }
-  const release = checkRelease({ sourceText, originalText: targetText, fixedText: text, report: [], reviews });
+  const release = checkRelease({ sourceText, originalText: targetText, fixedText: text, report: [], reviews, resolutions });
   if (release.errors.length) throw new Error('Independent release check failed: ' + release.errors.join('; '));
   return { text, audit: { mode: 'approved_changes_only', source_sha256: source.sha256, original_sha256: target.sha256,
     fixed_sha256: hashText(text), applied_entry_ids: reviews.decisions.filter(d => changed.includes(d.key)).map(d => d.entry_id),
-    invalidated_stamps: invalidated, changed_count: changed.length, flutter_verified: false, release } };
+    invalidated_stamps: invalidated, duplicate_audit: duplicateAudit, changed_count: changed.length, flutter_verified: false, release } };
 }
+
+if (isDirect(import.meta.url)) await stageMain(() => runExportStage(exportApproved));

@@ -9,7 +9,7 @@ export function assertFlutterEvidence(evidence, sourceText, fixedText) {
   if (evidence?.status !== 'passed' || evidence.source_sha256 !== hashText(sourceText)
       || evidence.target_sha256 !== hashText(fixedText)
       || !Array.isArray(evidence.commands) || evidence.commands.length !== commands.length
-      || commands.some((command, i) => evidence.commands[i]?.command !== command || evidence.commands[i]?.exit_code !== 0)) {
+      || commands.some((command, i) => evidence.commands[i]?.command?.replace(/^flutter --no-version-check /, 'flutter ') !== command || evidence.commands[i]?.exit_code !== 0)) {
     throw new Error('Flutter evidence does not prove successful generation for these exact source/fixed bytes.');
   }
 }
@@ -33,13 +33,15 @@ export async function verifyFlutterExport({ sourceText, fixedText, sourceLocale,
   if (code !== 0) throw new Error('Flutter verification failed; no final ARB was released. Inspect flutter/flutter.log.');
   const evidence = JSON.parse(await readFile(join(project, 'evidence.json'), 'utf8'));
   assertFlutterEvidence(evidence, sourceText, fixedText);
-  const [generated, copiedSource, copiedFixed] = await Promise.all([
+  const [generated, copiedSource, copiedFixed, log] = await Promise.all([
     readFile(join(project, 'lib', 'generated', 'app_localizations.dart'), 'utf8'),
     readFile(join(project, 'lib', 'l10n', `app_${sourceLocale}.arb`), 'utf8'),
-    readFile(join(project, 'lib', 'l10n', `app_${targetLocale}.arb`), 'utf8')
+    readFile(join(project, 'lib', 'l10n', `app_${targetLocale}.arb`), 'utf8'),
+    readFile(join(project, 'flutter.log'), 'utf8')
   ]);
   if (!generated.trim() || copiedSource !== sourceText || copiedFixed !== fixedText) {
     throw new Error('Flutter project has missing output or changed input bytes; no final ARB was released.');
   }
+  if (evidence.generated_sha256 !== hashText(generated) || evidence.log_sha256 !== hashText(log)) throw new Error('Flutter output/log hashes no longer match the recorded evidence.');
   return { ...evidence, evidence_file: 'flutter/evidence.json', generated_sha256: hashText(generated) };
 }

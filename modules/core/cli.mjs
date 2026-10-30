@@ -10,7 +10,7 @@ import { readArb, localeOf } from './arb.mjs';
 
 const root = fileURLToPath(new URL('../../', import.meta.url));
 const usage = `locqa check --source FILE --target FILE --glossary CSV --out NEW_DIRECTORY
-locqa export --source FILE --target FILE --reviews JSON --out NEW_DIRECTORY [--verify-flutter]
+locqa export --source FILE --target FILE --reviews JSON --out NEW_DIRECTORY [--resolutions JSON] [--verify-flutter]
 
 Options: --source-locale ru --target-locale kk (required if @@locale absent)
 check: --length-ratio 2 --short-limit 20 --length-minimum 10
@@ -58,7 +58,7 @@ export async function main(argv = process.argv.slice(2)) {
   if (!argv.length || argv[0] === '--help' || argv[0] === 'help') { console.log(usage); return 0; }
   const command = argv[0];
   if (!['check', 'export'].includes(command)) throw new Error('Unknown command. Use locqa --help.');
-  const options = Object.fromEntries(['source', 'target', 'out', 'source-locale', 'target-locale', ...(command === 'check' ? ['glossary', 'length-ratio', 'short-limit', 'length-minimum'] : ['reviews'])].map(name => [name, { type: 'string' }]));
+  const options = Object.fromEntries(['source', 'target', 'out', 'source-locale', 'target-locale', ...(command === 'check' ? ['glossary', 'length-ratio', 'short-limit', 'length-minimum'] : ['reviews', 'resolutions'])].map(name => [name, { type: 'string' }]));
   if (command === 'export') options['verify-flutter'] = { type: 'boolean' };
   options.help = { type: 'boolean' };
   const { values: a } = parseArgs({ args: argv.slice(1), options, strict: true, allowPositionals: false });
@@ -79,7 +79,8 @@ export async function main(argv = process.argv.slice(2)) {
       return result.manifest.structural_errors ? 2 : result.report.length ? 1 : 0;
     }
     const reviews = JSON.parse(extraText);
-    const result = exportApproved({ ...inputs, reviews });
+    const resolutions = a.resolutions ? JSON.parse(await readUtf8(a.resolutions)) : undefined;
+    const result = exportApproved({ ...inputs, reviews, resolutions });
     const locale = reviews.target_locale;
     if (!/^[A-Za-z0-9_-]+$/.test(locale)) throw new Error('Unsafe locale for export filename.');
     if (a['verify-flutter']) {
