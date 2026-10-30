@@ -1,0 +1,57 @@
+{
+  "@@locale": "kk",
+  "@@comment": "Intentionally faulty synthetic examples; never a reviewed translation",
+  "demoUntranslatedAction": "Открыть лунный сундук",
+  "demoParcelNotice": "Сәлемдеме: {recipent}",
+  "@demoParcelNotice": {
+    "placeholders": {
+      "recipent": {
+        "type": "String"
+      }
+    }
+  },
+  "demoTokenBalance": "{count, plural, one{{count} жетон қалды}}",
+  "@demoTokenBalance": {
+    "placeholders": {
+      "count": {
+        "type": "num"
+      }
+    }
+  },
+  "demoGuildHall": "Клан залы",
+  "demoShortTab": "Осы жерді басып үлкен картаны ашыңыз",
+  "demoNaturalNotice": "Сіз сәтті аяқтадыңыз маршрут",
+  "demoTicketCounter": "Қолжетімді талондар",
+  "demoTicketHelp": "Купонды пайдаланыңыз",
+  "demoInviteName": "{player}-ға шақыру",
+  "@demoInviteName": {
+    "placeholders": {
+      "player": {
+        "type": "String"
+      }
+    }
+  },
+  "demoQuestionLabel": "Сурақ",
+  "demoAirshipAudio": "Airship sound settings",
+  "cleanBrand": "StarPebble",
+  "cleanNumber": "2048",
+  "cleanRadioLoanword": "Радио",
+  "cleanPrivateGlyph": "",
+  "cleanGreeting": "Қош келдіңіз, {visitor}!",
+  "@cleanGreeting": {
+    "placeholders": {
+      "visitor": {
+        "type": "String"
+      }
+    }
+  },
+  "cleanFormatTokens": "Код %s: <g>%d</g>\nЖалғастыру",
+  "cleanLocalePlural": "{count, plural, one{{count} арал} other{{count} арал}}",
+  "@cleanLocalePlural": {
+    "placeholders": {
+      "count": {
+        "type": "num"
+      }
+    }
+  }
+}

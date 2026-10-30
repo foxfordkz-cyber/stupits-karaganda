@@ -1,0 +1,66 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://locqa.local/finding.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "key",
+    "issue_type",
+    "severity",
+    "source",
+    "target",
+    "evidence",
+    "suggestion",
+    "confidence",
+    "reviewed_by_human"
+  ],
+  "properties": {
+    "key": {
+      "type": "string",
+      "minLength": 1
+    },
+    "issue_type": {
+      "enum": [
+        "untranslated",
+        "same_as_source",
+        "placeholder_mismatch",
+        "plural_mismatch",
+        "glossary_violation",
+        "length_overflow",
+        "machine_translation_suspect",
+        "inconsistent_term",
+        "suffix_harmony",
+        "orthography",
+        "wrong_language"
+      ]
+    },
+    "severity": {
+      "enum": [
+        "high",
+        "medium",
+        "low"
+      ]
+    },
+    "source": {
+      "type": "string"
+    },
+    "target": {
+      "type": "string"
+    },
+    "evidence": {
+      "type": "string",
+      "minLength": 1
+    },
+    "suggestion": {
+      "type": "string"
+    },
+    "confidence": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "reviewed_by_human": {
+      "type": "boolean"
+    }
+  }
+}

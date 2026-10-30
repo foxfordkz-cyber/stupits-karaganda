@@ -1,0 +1,46 @@
+[
+  {
+    "key": "demoMissingExitLabel",
+    "issue_type": "untranslated"
+  },
+  {
+    "key": "demoUntranslatedAction",
+    "issue_type": "same_as_source"
+  },
+  {
+    "key": "demoParcelNotice",
+    "issue_type": "placeholder_mismatch"
+  },
+  {
+    "key": "demoTokenBalance",
+    "issue_type": "plural_mismatch"
+  },
+  {
+    "key": "demoGuildHall",
+    "issue_type": "glossary_violation"
+  },
+  {
+    "key": "demoShortTab",
+    "issue_type": "length_overflow"
+  },
+  {
+    "key": "demoNaturalNotice",
+    "issue_type": "machine_translation_suspect"
+  },
+  {
+    "key": "demoTicketCounter",
+    "issue_type": "inconsistent_term"
+  },
+  {
+    "key": "demoInviteName",
+    "issue_type": "suffix_harmony"
+  },
+  {
+    "key": "demoQuestionLabel",
+    "issue_type": "orthography"
+  },
+  {
+    "key": "demoAirshipAudio",
+    "issue_type": "wrong_language"
+  }
+]

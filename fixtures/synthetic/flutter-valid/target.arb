@@ -1,0 +1,49 @@
+{
+  "@@locale": "kk",
+  "smokeWelcome": "Қош келдіңіз, {visitor}!",
+  "@smokeWelcome": {
+    "description": "Synthetic smoke-test greeting; not native-reviewed",
+    "placeholders": {
+      "visitor": {
+        "type": "String"
+      }
+    },
+    "x-locqa": {
+      "reviewed_by_human": false,
+      "reviewer": "TEST_ONLY_NOT_REVIEWED",
+      "reviewed_at": "2026-10-30T00:00:00Z",
+      "source_hash": "054e77ffa1365ea2ca011aa065fe0cbb7cb5d8701393cc142d519afa97a3c81a",
+      "original_hash": "44404939eca2e72b3fadafd245feee7f7ce8cf7511bf8fa7da18e58817c34f66",
+      "approved_hash": "44404939eca2e72b3fadafd245feee7f7ce8cf7511bf8fa7da18e58817c34f66"
+    }
+  },
+  "smokeIslandCount": "{count, plural, one{{count} арал} other{{count} арал}}",
+  "@smokeIslandCount": {
+    "placeholders": {
+      "count": {
+        "type": "num"
+      }
+    }
+  },
+  "smokeNestedMessage": "{role, select, pilot{{count, plural, one{Ұшқыш {count} аралды көреді} other{Ұшқыш {count} аралды көреді}}} other{{count, plural, one{{count} арал көрінеді} other{{count} арал көрінеді}}}}",
+  "@smokeNestedMessage": {
+    "description": "Synthetic structural test; not a linguistic gold standard",
+    "placeholders": {
+      "role": {
+        "type": "String"
+      },
+      "count": {
+        "type": "num"
+      }
+    }
+  },
+  "smokeEscapedText": "{label} жанында '{' және '}' көрсетіңіз; апостроф ''",
+  "@smokeEscapedText": {
+    "description": "Requires use-escaping: true in l10n.yaml",
+    "placeholders": {
+      "label": {
+        "type": "String"
+      }
+    }
+  }
+}

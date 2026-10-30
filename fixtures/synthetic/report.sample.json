@@ -1,0 +1,123 @@
+[
+  {
+    "key": "demoMissingExitLabel",
+    "issue_type": "untranslated",
+    "severity": "high",
+    "source": "Закрыть окно маяка",
+    "target": "",
+    "evidence": "Ключ отсутствует в целевом файле.",
+    "suggestion": "Маяк терезесін жабу",
+    "confidence": 1,
+    "reviewed_by_human": false
+  },
+  {
+    "key": "demoUntranslatedAction",
+    "issue_type": "same_as_source",
+    "severity": "medium",
+    "source": "Открыть лунный сундук",
+    "target": "Открыть лунный сундук",
+    "evidence": "Русская фраза целиком повторена в KK; это не бренд или число.",
+    "suggestion": "Ай сандығын ашу",
+    "confidence": 0.99,
+    "reviewed_by_human": false
+  },
+  {
+    "key": "demoParcelNotice",
+    "issue_type": "placeholder_mismatch",
+    "severity": "high",
+    "source": "Посылка для {recipient}",
+    "target": "Сәлемдеме: {recipent}",
+    "evidence": "В RU указан {recipient}, в KK — {recipent}.",
+    "suggestion": "Сәлемдеме: {recipient}",
+    "confidence": 1,
+    "reviewed_by_human": false
+  },
+  {
+    "key": "demoTokenBalance",
+    "issue_type": "plural_mismatch",
+    "severity": "high",
+    "source": "{count, plural, one{Остался {count} жетон} few{Осталось {count} жетона} many{Осталось {count} жетонов} other{Осталось {count} жетона}}",
+    "target": "{count, plural, one{{count} жетон қалды}}",
+    "evidence": "В синтетическом KK plural отсутствует обязательная ветка other.",
+    "suggestion": "{count, plural, one{{count} жетон қалды} other{{count} жетон қалды}}",
+    "confidence": 1,
+    "reviewed_by_human": false
+  },
+  {
+    "key": "demoGuildHall",
+    "issue_type": "glossary_violation",
+    "severity": "medium",
+    "source": "Зал гильдии",
+    "target": "Клан залы",
+    "evidence": "В условном глоссарии гильдия → бірлестік; здесь использовано клан.",
+    "suggestion": "Бірлестік залы",
+    "confidence": 0.9,
+    "reviewed_by_human": false
+  },
+  {
+    "key": "demoShortTab",
+    "issue_type": "length_overflow",
+    "severity": "medium",
+    "source": "Карта",
+    "target": "Осы жерді басып үлкен картаны ашыңыз",
+    "evidence": "36 символа против 5; ключ задан как короткая вкладка. Это эвристика, размеры UI неизвестны.",
+    "suggestion": "Карта",
+    "confidence": 0.8,
+    "reviewed_by_human": false
+  },
+  {
+    "key": "demoNaturalNotice",
+    "issue_type": "machine_translation_suspect",
+    "severity": "medium",
+    "source": "Вы успешно завершили маршрут",
+    "target": "Сіз сәтті аяқтадыңыз маршрут",
+    "evidence": "Искусственный пример русского порядка слов: маршрут вынесен после глагола; требуется оценка носителя.",
+    "suggestion": "Сіз бағытты сәтті аяқтадыңыз",
+    "confidence": 0.7,
+    "reviewed_by_human": false
+  },
+  {
+    "key": "demoTicketCounter",
+    "issue_type": "inconsistent_term",
+    "severity": "medium",
+    "source": "Доступные купоны",
+    "target": "Қолжетімді талондар",
+    "evidence": "Купон передан как талондар, а в demoTicketHelp — купон; требуется контекстное решение носителя.",
+    "suggestion": "Қолжетімді купондар",
+    "confidence": 0.75,
+    "reviewed_by_human": false
+  },
+  {
+    "key": "demoInviteName",
+    "issue_type": "suffix_harmony",
+    "severity": "medium",
+    "source": "Приглашение игроку {player}",
+    "target": "{player}-ға шақыру",
+    "evidence": "Фиксированное -ға стоит после динамического имени {player}; произношение имени неизвестно.",
+    "suggestion": "Шақыру алушы: {player}",
+    "confidence": 0.9,
+    "reviewed_by_human": false
+  },
+  {
+    "key": "demoQuestionLabel",
+    "issue_type": "orthography",
+    "severity": "medium",
+    "source": "Вопрос",
+    "target": "Сурақ",
+    "evidence": "Искусственная замена ұ на у в слове Сурақ; предложение ещё не проверено носителем.",
+    "suggestion": "Сұрақ",
+    "confidence": 0.9,
+    "reviewed_by_human": false
+  },
+  {
+    "key": "demoAirshipAudio",
+    "issue_type": "wrong_language",
+    "severity": "high",
+    "source": "Настройки звука дирижабля",
+    "target": "Airship sound settings",
+    "evidence": "Целевой текст целиком на английском, хотя @@locale указан kk.",
+    "suggestion": "Дирижабль дыбысының баптаулары",
+    "confidence": 0.99,
+    "reviewed_by_human": false
+  }
+]

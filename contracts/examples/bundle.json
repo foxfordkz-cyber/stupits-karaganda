@@ -1,0 +1,43 @@
+{
+  "schema_version": "1.0",
+  "source_locale": "ru",
+  "target_locale": "kk",
+  "entries": [
+    {
+      "entry_id": "demoMissingExitLabel#0",
+      "key": "demoMissingExitLabel",
+      "occurrence": 0,
+      "source": "Закрыть окно маяка",
+      "target": null,
+      "source_hash": "f8971b69d19534d9c5a284a3b62779d9d970ab1a81f1a249c6aed251289e5025",
+      "target_hash": null,
+      "context": {
+        "section": "Invented development fixtures"
+      }
+    },
+    {
+      "entry_id": "demoUntranslatedAction#1",
+      "key": "demoUntranslatedAction",
+      "occurrence": 1,
+      "source": "Открыть лунный сундук",
+      "target": "Открыть лунный сундук",
+      "source_hash": "a37f07c7c98b6e52536a14c83fd2ae00ce616997c8a0c996b303babf11fd00a0",
+      "target_hash": "a37f07c7c98b6e52536a14c83fd2ae00ce616997c8a0c996b303babf11fd00a0",
+      "context": {
+        "section": "Invented development fixtures"
+      }
+    },
+    {
+      "entry_id": "demoParcelNotice#1",
+      "key": "demoParcelNotice",
+      "occurrence": 1,
+      "source": "Посылка для {recipient}",
+      "target": "Сәлемдеме: {recipent}",
+      "source_hash": "fc198926c8822498addb08065f2ce26870750416ddc26078da1d02f37aa81ce9",
+      "target_hash": "84d8bfb7b6b88e6f5c0ad927039265584fde5c36b5bcc170dd89f69158ef35b0",
+      "context": {
+        "section": "Invented development fixtures"
+      }
+    }
+  ]
+}

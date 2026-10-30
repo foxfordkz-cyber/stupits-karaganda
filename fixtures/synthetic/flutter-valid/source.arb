@@ -1,0 +1,41 @@
+{
+  "@@locale": "ru",
+  "smokeWelcome": "Добро пожаловать, {visitor}!",
+  "@smokeWelcome": {
+    "description": "Synthetic smoke-test greeting",
+    "placeholders": {
+      "visitor": {
+        "type": "String"
+      }
+    }
+  },
+  "smokeIslandCount": "{count, plural, one{{count} остров} few{{count} острова} many{{count} островов} other{{count} острова}}",
+  "@smokeIslandCount": {
+    "placeholders": {
+      "count": {
+        "type": "num"
+      }
+    }
+  },
+  "smokeNestedMessage": "{role, select, pilot{{count, plural, one{Пилот видит {count} остров} other{Пилот видит {count} островов}}} other{{count, plural, one{Виден {count} остров} other{Видно {count} островов}}}}",
+  "@smokeNestedMessage": {
+    "description": "Nested select and plural, with other in every branch",
+    "placeholders": {
+      "role": {
+        "type": "String"
+      },
+      "count": {
+        "type": "num"
+      }
+    }
+  },
+  "smokeEscapedText": "Покажите '{' и '}' рядом с {label}; апостроф ''",
+  "@smokeEscapedText": {
+    "description": "Requires use-escaping: true in l10n.yaml",
+    "placeholders": {
+      "label": {
+        "type": "String"
+      }
+    }
+  }
+}

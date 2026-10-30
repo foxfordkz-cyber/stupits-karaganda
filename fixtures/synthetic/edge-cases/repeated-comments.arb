@@ -1,0 +1,9 @@
+{
+  "@@locale": "ru",
+  "@@comment": "Первый вымышленный раздел",
+  "edgeFirstSectionLabel": "Карта островов",
+  "@@comment": "Второй вымышленный раздел",
+  "edgeSecondSectionLabel": "Почта дирижабля",
+  "@@comment": "Третий вымышленный раздел",
+  "edgeThirdSectionLabel": "Журнал экспедиции"
+}

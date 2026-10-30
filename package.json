@@ -1,0 +1,26 @@
+{
+  "name": "qazaq-loc-qa",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "test": "node --test",
+    "check": "node scripts/check.mjs",
+    "demo": "node scripts/demo.mjs",
+    "validate": "node scripts/validate.mjs",
+    "evaluate": "node scripts/evaluate.mjs",
+    "sample-review": "node scripts/sample-review.mjs",
+    "merge-reports": "node scripts/merge-reports.mjs",
+    "release-check": "node scripts/release-check.mjs",
+    "flutter-smoke": "node scripts/flutter-smoke.mjs"
+  },
+  "dependencies": {
+    "@formatjs/icu-messageformat-parser": "3.5.22",
+    "ajv": "8.20.0",
+    "ajv-formats": "3.0.1",
+    "jsonc-parser": "3.3.1"
+  }
+}

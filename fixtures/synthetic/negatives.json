@@ -1,0 +1,30 @@
+[
+  {
+    "key": "cleanBrand",
+    "reason": "Вымышленный бренд может совпадать с оригиналом."
+  },
+  {
+    "key": "cleanNumber",
+    "reason": "Строка состоит только из цифр."
+  },
+  {
+    "key": "cleanRadioLoanword",
+    "reason": "Допустимое заимствование по синтетическому глоссарию."
+  },
+  {
+    "key": "cleanPrivateGlyph",
+    "reason": "Специальный символ вымышленного шрифта должен сохраняться."
+  },
+  {
+    "key": "cleanGreeting",
+    "reason": "Имена плейсхолдеров совпадают."
+  },
+  {
+    "key": "cleanFormatTokens",
+    "reason": "Сохранены printf-токены, теги и перенос строки."
+  },
+  {
+    "key": "cleanLocalePlural",
+    "reason": "В RU и KK разные категории plural допустимы; other присутствует."
+  }
+]

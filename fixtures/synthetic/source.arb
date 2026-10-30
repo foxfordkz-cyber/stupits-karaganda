@@ -1,0 +1,58 @@
+{
+  "@@locale": "ru",
+  "@@comment": "Invented development examples; no customer data",
+  "demoMissingExitLabel": "Закрыть окно маяка",
+  "demoUntranslatedAction": "Открыть лунный сундук",
+  "demoParcelNotice": "Посылка для {recipient}",
+  "@demoParcelNotice": {
+    "placeholders": {
+      "recipient": {
+        "type": "String"
+      }
+    }
+  },
+  "demoTokenBalance": "{count, plural, one{Остался {count} жетон} few{Осталось {count} жетона} many{Осталось {count} жетонов} other{Осталось {count} жетона}}",
+  "@demoTokenBalance": {
+    "placeholders": {
+      "count": {
+        "type": "num"
+      }
+    }
+  },
+  "demoGuildHall": "Зал гильдии",
+  "demoShortTab": "Карта",
+  "demoNaturalNotice": "Вы успешно завершили маршрут",
+  "demoTicketCounter": "Доступные купоны",
+  "demoTicketHelp": "Используйте купон",
+  "demoInviteName": "Приглашение игроку {player}",
+  "@demoInviteName": {
+    "placeholders": {
+      "player": {
+        "type": "String"
+      }
+    }
+  },
+  "demoQuestionLabel": "Вопрос",
+  "demoAirshipAudio": "Настройки звука дирижабля",
+  "cleanBrand": "StarPebble",
+  "cleanNumber": "2048",
+  "cleanRadioLoanword": "Радио",
+  "cleanPrivateGlyph": "",
+  "cleanGreeting": "Добро пожаловать, {visitor}!",
+  "@cleanGreeting": {
+    "placeholders": {
+      "visitor": {
+        "type": "String"
+      }
+    }
+  },
+  "cleanFormatTokens": "Код %s: <g>%d</g>\nПродолжить",
+  "cleanLocalePlural": "{count, plural, one{{count} остров} few{{count} острова} many{{count} островов} other{{count} острова}}",
+  "@cleanLocalePlural": {
+    "placeholders": {
+      "count": {
+        "type": "num"
+      }
+    }
+  }
+}
