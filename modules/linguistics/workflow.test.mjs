@@ -6,11 +6,21 @@ import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import { hashText, assertContract } from '../../src/contracts.mjs';
 import { readGlossary, pendingTermDecisions, csvTable, prepareQueue, inspectProposal, auditReviews } from './workflow.mjs';
+import { annotateQueue, renderReviewPacket, renderTermPacket } from './review-packet.mjs';
 
 const root = fileURLToPath(new URL('../../', import.meta.url));
 const example = JSON.parse(await readFile(new URL('../../contracts/examples/bundle.json', import.meta.url), 'utf8'));
 const sample = JSON.parse(await readFile(new URL('../../fixtures/synthetic/report.sample.json', import.meta.url), 'utf8'));
 const report = sample.filter(f => example.entries.some(e => e.key === f.key));
+
+function annotationDocument() {
+  const entry = example.entries[2];
+  return { workflow_version: '1.0', target_locale: 'kk', annotations: [{
+    entry_id: entry.entry_id, source_hash: entry.source_hash, original_hash: entry.target_hash,
+    proposed_text: 'Сәлемдеме алушы: {recipient}', author: 'AI draft',
+    rationale: 'Name the recipient explicitly', questions: ['Is this a recipient label?'],
+  }] };
+}
 
 // Invented in-memory test attestations only; no real reviewer or review file is created.
 function syntheticReview(entry, text) {
@@ -136,9 +146,81 @@ test('CLI writes only new ignored runs, keeps inputs intact and produces empty a
     assert.deepEqual(JSON.parse(await readFile(reviews, 'utf8')).decisions, []);
     assert.equal(cli('audit', '--bundle', bundlePath, '--reviews', reviews, '--out', resolve(temp, 'audit')).status, 0);
     assert.equal(JSON.parse(await readFile(resolve(temp, 'audit', 'review-audit.json'), 'utf8')).status, 'empty');
+    const noteFile = resolve(temp, 'notes.json'); await writeFile(noteFile, JSON.stringify(annotationDocument()));
+    const annotated = cli('prepare', '--bundle', bundlePath, '--report', reportPath,
+      '--annotations', noteFile, '--out', resolve(temp, 'annotated'));
+    assert.equal(annotated.status, 0, annotated.stderr);
+    const manifest = JSON.parse(await readFile(resolve(temp, 'annotated', 'manifest.json'), 'utf8'));
+    assert.equal(manifest.annotation_count, 1);
+    assert.equal(manifest.annotations_hash, hashText(JSON.stringify(annotationDocument())));
+    assert.match(await readFile(resolve(temp, 'annotated', 'batch-001.md'), 'utf8'), /Сәлемдеме алушы/);
+    assert.match(await readFile(resolve(temp, 'annotated', 'term-review.md'), 'utf8'), /Термин 40/);
+    assert.deepEqual(JSON.parse(await readFile(resolve(temp, 'annotated', 'reviews.json'), 'utf8')).decisions, []);
+    await writeFile(noteFile, 'null');
+    assert.equal(cli('prepare', '--bundle', bundlePath, '--report', reportPath,
+      '--annotations', noteFile, '--out', resolve(temp, 'null-notes')).status, 1);
+    assert.equal(cli('audit', '--bundle', bundlePath, '--reviews', reviews,
+      '--annotations', noteFile, '--out', resolve(temp, 'ignored-notes')).status, 1);
     assert.equal(cli('prepare', '--bundle', bundlePath, '--report', reportPath,
       '--out', 'modules/linguistics/should-not-exist').status, 1);
     assert.equal(cli('prepare', '--bundle', bundlePath, '--report', reportPath,
       '--out', resolve(temp, 'invalid'), '--batch-size', '25.5').status, 1);
   } finally { await rm(temp, { recursive: true, force: true }); }
+});
+
+test('editorial variants preserve model proposals and never create human decisions', () => {
+  const queue = prepareQueue(example, report), before = structuredClone(queue);
+  const edited = annotateQueue(queue, annotationDocument());
+  assert.deepEqual(queue, before);
+  const row = edited.rows.find(r => r.key === 'demoParcelNotice');
+  assert.equal(row.proposals.length, 2);
+  assert.equal(row.proposals[0].text, 'Сәлемдеме: {recipient}');
+  assert.equal(row.editorial_note.proposed_hash, hashText('Сәлемдеме алушы: {recipient}'));
+  assert.equal(row.editorial_note.technical.status, 'technical_checks_passed');
+  assert.equal(row.editorial_note.reviewed_by_human, false);
+  assert.equal(row.reviewer, null); assert.equal(row.final_text, null); assert.equal(row.decision, null);
+  assert.deepEqual(edited.reviews.decisions, []);
+  assert.deepEqual(edited.batches[0].rows.find(r => r.entry_id === row.entry_id), row);
+  assert.match(renderReviewPacket(edited.batches[0]), /Сәлемдеме алушы/);
+});
+
+test('stale notes, duplicates, unknown identities and injected approval fields are refused', () => {
+  const queue = prepareQueue(example, report);
+  for (const patch of [{ source_hash: hashText('new') }, { original_hash: null },
+    { entry_id: 'unknown#1' }, { reviewed_by_human: true }, { reviewer: 'invented' },
+    { rationale: '' }, { questions: [3] }, { proposed_text: '' }]) {
+    const notes = annotationDocument(); Object.assign(notes.annotations[0], patch);
+    assert.throws(() => annotateQueue(queue, notes));
+  }
+  const duplicate = annotationDocument(); duplicate.annotations.push({ ...duplicate.annotations[0] });
+  assert.throws(() => annotateQueue(queue, duplicate), /Duplicate/);
+  assert.throws(() => annotateQueue(queue, { ...annotationDocument(), target_locale: 'uz' }));
+  assert.throws(() => annotateQueue(queue, { ...annotationDocument(), approved: true }));
+});
+
+test('question-only and technically failed notes remain visible without forcing an edit', () => {
+  const queue = prepareQueue(example, report), notes = annotationDocument();
+  notes.annotations[0].proposed_text = null;
+  const question = annotateQueue(queue, notes).rows.find(r => r.key === 'demoParcelNotice');
+  assert.equal(question.proposals.length, 1);
+  assert.equal(question.editorial_note.proposed_hash, null);
+  notes.annotations[0].proposed_text = 'Сәлемдеме алушы: {wrong}';
+  const failed = annotateQueue(queue, notes).rows.find(r => r.key === 'demoParcelNotice');
+  assert.equal(failed.editorial_note.technical.status, 'failed');
+  assert.equal(failed.editorial_note.status, 'pending_human_review');
+  assert.equal(failed.reviewed_by_human, false);
+});
+
+test('reading packets preserve escaped text, use safe fences and leave agreement fields empty', async () => {
+  const queue = prepareQueue(example, report), notes = annotationDocument();
+  notes.annotations[0].rationale = 'Literal `````\n# not a heading <script> & "quoted"';
+  const edited = annotateQueue(queue, notes), packet = renderReviewPacket(edited.batches[0]);
+  assert.ok(packet.includes(JSON.stringify(notes.annotations[0].rationale)));
+  assert.match(packet, /``````json/);
+  assert.match(packet, /Проверивший, время и комментарий: ____________________/);
+  assert.match(packet, /null/);
+  const glossary = await readFile(new URL('./glossary.csv', import.meta.url), 'utf8');
+  const terms = renderTermPacket(pendingTermDecisions(glossary));
+  assert.equal((terms.match(/## Термин /g) ?? []).length, 40);
+  assert.ok(terms.includes(hashText(glossary)));
 });

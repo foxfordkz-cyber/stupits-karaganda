@@ -5,10 +5,11 @@ import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import { hashText } from '../../src/contracts.mjs';
 import { prepareQueue, csvTable, pendingTermDecisions, auditReviews } from './workflow.mjs';
+import { annotateQueue, renderReviewPacket, renderTermPacket } from './review-packet.mjs';
 
 const root = fileURLToPath(new URL('../../', import.meta.url));
 const help = `Linguistics workflow (no automatic approvals or ARB writes)
-  prepare --bundle FILE --report FILE --out private/linguistics/run-001 [--batch-size 25]
+  prepare --bundle FILE --report FILE --out private/linguistics/run-001 [--batch-size 25] [--annotations FILE]
   audit --bundle FILE --reviews FILE --out private/linguistics/audit-001
   hash --text-file FILE
 Run from repository root. Every --out must be a NEW directory under private/,
@@ -50,11 +51,12 @@ async function main() {
   const { values: args, positionals } = parseArgs({ allowPositionals: true, options: {
     bundle: { type: 'string' }, report: { type: 'string' }, reviews: { type: 'string' },
     out: { type: 'string' }, 'batch-size': { type: 'string', default: '25' },
-    'text-file': { type: 'string' }, help: { type: 'boolean' },
+    'text-file': { type: 'string' }, annotations: { type: 'string' }, help: { type: 'boolean' },
   } });
   if (args.help) { console.log(help); return; }
   if (positionals.length !== 1) throw new Error(help);
   const command = positionals[0];
+  if (args.annotations && command !== 'prepare') throw new Error('--annotations is only supported by prepare');
   if (command === 'hash') {
     if (!args['text-file']) throw new Error('--text-file is required');
     console.log(hashText(await readFile(args['text-file'], 'utf8'))); return;
@@ -66,28 +68,38 @@ async function main() {
     if (!args.report) throw new Error('--report is required');
     if (!/^\d+$/.test(args['batch-size'])) throw new Error('--batch-size must be an integer from 20 to 30');
     const report = await read(args.report);
-    const queue = prepareQueue(bundle, report, { batchSize: Number(args['batch-size']) });
+    let queue = prepareQueue(bundle, report, { batchSize: Number(args['batch-size']) });
+    const annotations = args.annotations ? await read(args.annotations) : null;
+    if (args.annotations) queue = annotateQueue(queue, annotations);
     const glossaryText = await readFile(new URL('./glossary.csv', import.meta.url), 'utf8');
     const terms = pendingTermDecisions(glossaryText);
     const out = await createOutput(args.out);
     await writeJSON(out, 'bundle.snapshot.json', bundle);
     await writeJSON(out, 'report.snapshot.json', report);
     await writeJSON(out, 'reviews.json', queue.reviews);
+    if (annotations !== null) await writeJSON(out, 'annotations.snapshot.json', annotations);
     await writeFile(resolve(out, 'glossary.snapshot.csv'), glossaryText, { flag: 'wx' });
     await writeFile(resolve(out, 'term-decisions.jsonl'), terms.map(t => JSON.stringify(t)).join('\n') + '\n', { flag: 'wx' });
-    for (const batch of queue.batches) await writeJSON(out, `batch-${batch.batch_id}.json`, batch);
+    await writeFile(resolve(out, 'term-review.md'), renderTermPacket(terms), { flag: 'wx' });
+    for (const batch of queue.batches) {
+      await writeJSON(out, `batch-${batch.batch_id}.json`, batch);
+      await writeFile(resolve(out, `batch-${batch.batch_id}.md`), renderReviewPacket(batch), { flag: 'wx' });
+    }
     await writeFile(resolve(out, 'queue.csv'), csvTable([
-      ['batch_id', 'entry_id', 'ru_source', 'kk_original', 'proposals_json', 'issues', 'status', 'reviewer', 'final_text', 'rationale'],
+      ['batch_id', 'entry_id', 'ru_source', 'kk_original', 'proposals_json', 'issues', 'status', 'reviewer', 'final_text', 'rationale', 'editorial_proposal', 'context_questions'],
       ...queue.rows.map((row, i) => [String(Math.floor(i / Number(args['batch-size'])) + 1).padStart(3, '0'),
         row.entry_id, row.source, row.original_text, JSON.stringify(row.proposals.map(p => p.text)),
-        row.findings.map(f => f.issue_type).join('; '), 'pending', '', '', '']),
+        row.findings.map(f => f.issue_type).join('; '), 'pending', '', '', row.editorial_note?.rationale ?? '',
+        row.editorial_note?.proposed_text ?? '', JSON.stringify(row.editorial_note?.questions ?? [])]),
     ]), { flag: 'wx' });
     await writeJSON(out, 'manifest.json', {
       workflow_version: '1.0', row_count: queue.rows.length, batch_count: queue.batches.length,
       glossary_count: terms.length, human_decision_count: 0,
       bundle_hash: hashText(JSON.stringify(bundle)), report_hash: hashText(JSON.stringify(report)),
       glossary_hash: hashText(glossaryText),
-      hash_encoding: 'bundle/report: JSON.stringify(parsed JSON); glossary: exact UTF-8 text',
+      annotation_count: annotations?.annotations.length ?? 0,
+      annotations_hash: annotations === null ? null : hashText(JSON.stringify(annotations)),
+      hash_encoding: 'bundle/report/annotations: JSON.stringify(parsed JSON); glossary: exact UTF-8 text',
     });
     console.log(`Prepared ${queue.rows.length} rows in ${queue.batches.length} batches; ${terms.length} draft terms; 0 human decisions. ${out}`);
   } else {
