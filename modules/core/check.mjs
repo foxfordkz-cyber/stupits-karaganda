@@ -1,7 +1,8 @@
 import { assertContract } from '../../src/contracts.mjs';
 import { readArb, localeOf, createBundle, arbSnapshot } from './arb.mjs';
 import { parseGlossary } from './glossary.mjs';
-import { inspectMessage, compareMessages, visibleLength, protectedTokens } from './messages.mjs';
+import { inspectMessage, compareMessages, visibleLength, protectedTokens, hasLinguisticText } from './messages.mjs';
+import { baselinePlan } from './baseline-plan.mjs';
 
 export function checkArbs({ sourceText, targetText, glossaryText, sourceLocale, targetLocale, lengthRatio = 2, shortLimit = 20, lengthMinimum = 10 }) {
   for (const [name, value] of Object.entries({ lengthRatio, shortLimit, lengthMinimum })) if (!Number.isFinite(value) || value <= 0) throw new Error(`${name} must be a positive finite number.`);
@@ -37,7 +38,7 @@ export function checkArbs({ sourceText, targetText, glossaryText, sourceLocale, 
     }
     if (entry.source === entry.target && /\p{L}/u.test(entry.source) && !glossary.unchanged.has(entry.source.trim().toLocaleLowerCase())) {
       // Pure technical messages (e.g. {count}) are not untranslated prose.
-      const letters = original?.ast.some(n => n.type === 0 && /\p{L}/u.test(n.value));
+      const letters = original && hasLinguisticText(original.ast);
       if (letters) finding(entry, 'same_as_source', 'medium', 'Exact source/target match; no unchanged-term exception in the supplied glossary. Names and brands still need context.', 0.85);
     }
     let current;
@@ -56,7 +57,7 @@ export function checkArbs({ sourceText, targetText, glossaryText, sourceLocale, 
     if (sourceLength > 0 && sourceLength <= shortLimit && targetLength >= lengthMinimum && targetLength > sourceLength * lengthRatio) finding(entry, 'length_overflow', 'low', `Heuristic: ${targetLength} visible graphemes vs ${sourceLength} in source; threshold >${lengthRatio}x for source <=${shortLimit}. Runtime values, font and actual widget width are unknown.`, 0.65);
   }
   assertContract('report', report);
-  return { bundle, report, diagnostics, trace, audit: { source: arbSnapshot(source), target: arbSnapshot(target) },
+  return { bundle, report, diagnostics, trace, baselinePlan: baselinePlan(source, target), audit: { source: arbSnapshot(source), target: arbSnapshot(target) },
     manifest: { schema_version: '1.0', mode: 'live_core_detection', source_sha256: source.sha256, target_sha256: target.sha256,
       source_locale: sourceLocale, target_locale: targetLocale, glossary_rows: glossary.rowCount, entries: bundle.entries.length, findings: report.length,
       structural_errors: diagnostics.filter(d => d.severity === 'error').length, node: process.version, icu: process.versions.icu,

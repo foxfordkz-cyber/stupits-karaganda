@@ -5,16 +5,20 @@ import { fileURLToPath } from 'node:url';
 import { parseArgs, TextDecoder } from 'node:util';
 import { checkArbs } from './check.mjs';
 import { exportApproved } from './export.mjs';
+import { verifyFlutterExport } from './flutter.mjs';
+import { readArb, localeOf } from './arb.mjs';
 
 const root = fileURLToPath(new URL('../../', import.meta.url));
 const usage = `locqa check --source FILE --target FILE --glossary CSV --out NEW_DIRECTORY
-locqa export --source FILE --target FILE --reviews JSON --out NEW_DIRECTORY
+locqa export --source FILE --target FILE --reviews JSON --out NEW_DIRECTORY [--verify-flutter]
 
 Options: --source-locale ru --target-locale kk (required if @@locale absent)
 check: --length-ratio 2 --short-limit 20 --length-minimum 10
 
 check writes report.json, bundle.json, diagnostics.json, trace.json, audit.json,
-manifest.json. export writes intl_kk_fixed.arb and export-audit.json for kk.
+baseline-plan.json and manifest.json. export writes intl_kk_fixed.arb and
+export-audit.json for kk. --verify-flutter withholds the final ARB until the
+exact candidate passes real Flutter generation; failure keeps diagnostic copies.
 Outputs inside this repository must be in ignored outputs/, private/, data/ or
 submission/. Existing output directories are never overwritten.
 Exit codes: 0 clean/success; 1 findings; 2 structural/export/input errors.
@@ -55,7 +59,10 @@ export async function main(argv = process.argv.slice(2)) {
   const command = argv[0];
   if (!['check', 'export'].includes(command)) throw new Error('Unknown command. Use locqa --help.');
   const options = Object.fromEntries(['source', 'target', 'out', 'source-locale', 'target-locale', ...(command === 'check' ? ['glossary', 'length-ratio', 'short-limit', 'length-minimum'] : ['reviews'])].map(name => [name, { type: 'string' }]));
+  if (command === 'export') options['verify-flutter'] = { type: 'boolean' };
+  options.help = { type: 'boolean' };
   const { values: a } = parseArgs({ args: argv.slice(1), options, strict: true, allowPositionals: false });
+  if (a.help) { console.log(usage); return 0; }
   for (const key of ['source', 'target', 'out', command === 'check' ? 'glossary' : 'reviews']) if (!a[key]) throw new Error('Missing --' + key);
   const [sourceText, targetText, extraText] = await Promise.all([readUtf8(a.source), readUtf8(a.target), readUtf8(a.glossary ?? a.reviews)]);
   const inputs = { sourceText, targetText, sourceLocale: a['source-locale'], targetLocale: a['target-locale'] };
@@ -67,15 +74,23 @@ export async function main(argv = process.argv.slice(2)) {
         ...(a['short-limit'] !== undefined ? { shortLimit: Number(a['short-limit']) } : {}),
         ...(a['length-minimum'] !== undefined ? { lengthMinimum: Number(a['length-minimum']) } : {}) });
       for (const name of ['report', 'bundle', 'diagnostics', 'trace', 'audit', 'manifest']) await writeJson(out, name, result[name]);
+      await writeJson(out, 'baseline-plan', result.baselinePlan);
       console.log(`${result.report.length} findings; ${result.manifest.structural_errors} structural errors. Results: ${out}`);
       return result.manifest.structural_errors ? 2 : result.report.length ? 1 : 0;
     }
-    const result = exportApproved({ ...inputs, reviews: JSON.parse(extraText) });
-    const locale = JSON.parse(extraText).target_locale;
+    const reviews = JSON.parse(extraText);
+    const result = exportApproved({ ...inputs, reviews });
+    const locale = reviews.target_locale;
     if (!/^[A-Za-z0-9_-]+$/.test(locale)) throw new Error('Unsafe locale for export filename.');
+    if (a['verify-flutter']) {
+      const evidence = await verifyFlutterExport({ sourceText, fixedText: result.text, out,
+        sourceLocale: localeOf(readArb(sourceText), inputs.sourceLocale), targetLocale: locale });
+      result.audit.flutter_verified = true;
+      result.audit.flutter = evidence;
+    }
     await writeFile(join(out, `intl_${locale}_fixed.arb`), result.text, { flag: 'wx' });
     await writeJson(out, 'export-audit', result.audit);
-    console.log(`Exported ${result.audit.changed_count} approved changes. Flutter verification required: ${out}`);
+    console.log(`Exported ${result.audit.changed_count} approved changes. ${result.audit.flutter_verified ? 'Flutter verified' : 'Flutter verification required'}: ${out}`);
     return 0;
   } catch (error) {
     await writeJson(out, 'failure', { status: 'failed', error: error.message, flutter_verified: false });

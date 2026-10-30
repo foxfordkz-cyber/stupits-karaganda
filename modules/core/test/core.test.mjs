@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import { readArb, checkArbs, exportApproved } from '../index.mjs';
 import { parseGlossary } from '../glossary.mjs';
+import { assertFlutterEvidence } from '../flutter.mjs';
 import { assertContract, hashText } from '../../../src/contracts.mjs';
 
 const fixture = path => readFile(new URL('../../../fixtures/synthetic/' + path, import.meta.url), 'utf8');
@@ -82,6 +83,37 @@ test('same-source exceptions come from CSV terms or nonlinguistic content', () =
   assert.deepEqual(result.report.map(f => f.key), ['translated']);
 });
 
+test('unchanged linguistic text inside nested ICU is found without flagging technical-only messages', () => {
+  const nested = '{role, select, pilot{{n, plural, one{Один} other{Несколько}}} other{Нет}}';
+  assert.ok(types(check({ message: nested }, { message: nested })).includes('same_as_source'));
+  const technical = { markup: '<b>{name}</b>', standalone: '<nick>', printf: '%s %2$d', entity: '&nbsp; &amp;',
+    select: '{role, select, pilot{{name}} other{{name}}}' };
+  assert.deepEqual(check(technical, technical).report, []);
+});
+
+test('blank or malformed identities stay in diagnostics without breaking valid entries', () => {
+  const result = check({ '': 'bad', ' ': 'bad', '\ud800': 'bad', greeting: 'Hello' }, { greeting: 'Сәлем' });
+  assert.deepEqual(result.bundle.entries.map(e => e.key), ['greeting']);
+  assert.equal(result.diagnostics.filter(d => d.code === 'invalid_resource_name').length, 3);
+  assert.equal(result.baselinePlan.issues.length, 3);
+});
+
+test('baseline plan binds original hashes, all occurrences and sections with no assumed decisions', () => {
+  const sourceText = '{"@@locale":"ru","same":"A","same":"A","choice":"A","choice":"B"}';
+  const targetText = '{"@@locale":"kk","@@comment":"first","choice":"C","@@comment":"second","choice":"D","BadName":"E"}';
+  const result = checkArbs({ sourceText, targetText }), plan = result.baselinePlan;
+  assert.equal(plan.source_sha256, hashText(sourceText));
+  assert.equal(plan.target_sha256, hashText(targetText));
+  assert.equal(plan.decisions_applied, 0);
+  assert.ok(plan.issues.every(issue => issue.decision === null));
+  assert.equal(plan.issues.find(issue => issue.key === 'same').kind, 'identical_duplicate');
+  const choice = plan.issues.find(issue => issue.key === 'choice' && issue.side === 'target');
+  assert.equal(choice.kind, 'conflicting_duplicate');
+  assert.deepEqual(choice.occurrences.map(o => [o.entry_id, o.section, o.value_hash]), [['choice#1', 'first', hashText('C')], ['choice#2', 'second', hashText('D')]]);
+  assert.ok(plan.issues.some(issue => issue.kind === 'invalid_resource_name'));
+  assert.equal(result.audit.source.properties.filter(p => p.key === 'choice').length, 2);
+});
+
 test('glossary rejects malformed, missing and duplicate columns', () => {
   for (const text of ['ru,en\na,b', 'ru,kk\na', 'ru,kk\n"a,b', 'ru,kk,kk\na,b,c', 'ru,kk\n"a"x,b']) assert.throws(() => parseGlossary(text, 'ru', 'kk'));
 });
@@ -115,6 +147,11 @@ test('plural expression, exact selectors and offsets cannot disappear', () => {
   for (const target of ['{n}', '{n, plural, offset:1 other{Many}}', '{n, plural, =0{None} other{Many}}']) {
     assert.ok(types(check({ items: source }, { items: target })).includes('plural_mismatch'));
   }
+});
+
+test('repeated placeholders and ICU number tokens cannot silently disappear', () => {
+  assert.ok(types(check({ message: '{name}: {name}' }, { message: '{name}' })).includes('placeholder_mismatch'));
+  assert.ok(types(check({ message: '{n, plural, other{# шт.}}' }, { message: '{n, plural, other{дана}}' })).includes('placeholder_mismatch'));
 });
 
 test('nested ICU and escaping parse structurally', async () => {
@@ -249,6 +286,7 @@ test('CLI runs on a new ARB, persists schema outputs, and never overwrites a run
   const { dir, args } = await cliInputs(), out = join(dir, 'result');
   assert.equal(run(['check', ...args, '--out', out]).status, 0);
   assertContract('bundle', JSON.parse(await readFile(join(out, 'bundle.json'), 'utf8')));
+  assert.equal(JSON.parse(await readFile(join(out, 'baseline-plan.json'), 'utf8')).status, 'no_structural_decisions');
   const before = await readFile(join(out, 'bundle.json'), 'utf8');
   assert.equal(run(['check', ...args, '--out', out]).status, 2);
   assert.equal(await readFile(join(out, 'bundle.json'), 'utf8'), before);
@@ -287,4 +325,25 @@ test('CLI export writes a new ARB with an empty ledger and preserves source file
   const result = run(['export', '--source', join(dir, 'source.arb'), '--target', join(dir, 'target.arb'), '--reviews', ledger, '--out', join(dir, 'fixed')]);
   assert.equal(result.status, 0, result.stderr);
   assert.equal(await readFile(join(dir, 'fixed', 'intl_kk_fixed.arb'), 'utf8'), await readFile(join(dir, 'target.arb'), 'utf8'));
+});
+
+test('Flutter evidence must bind exact bytes, all commands and successful exits', () => {
+  const source = 'source', fixed = 'fixed';
+  const valid = { status: 'passed', source_sha256: hashText(source), target_sha256: hashText(fixed),
+    commands: ['flutter --version', 'flutter pub get', 'flutter gen-l10n'].map(command => ({ command, exit_code: 0 })) };
+  assert.doesNotThrow(() => assertFlutterEvidence(valid, source, fixed));
+  for (const bad of [null, {}, { ...valid, status: 'failed' }, { ...valid, source_sha256: hashText('changed') },
+    { ...valid, target_sha256: hashText('changed') }, { ...valid, commands: valid.commands.slice(0, 2) },
+    { ...valid, commands: [null, ...valid.commands.slice(1)] },
+    { ...valid, commands: valid.commands.map(c => ({ ...c, exit_code: 1 })) }]) {
+    assert.throws(() => assertFlutterEvidence(bad, source, fixed), /does not prove/);
+  }
+});
+
+test('command-specific help works without requiring file arguments', () => {
+  for (const name of ['check', 'export']) {
+    const result = run([name, '--help']);
+    assert.equal(result.status, 0);
+    assert.match(result.stdout, /--verify-flutter/);
+  }
 });

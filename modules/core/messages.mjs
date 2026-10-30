@@ -4,6 +4,14 @@ import { technicalSignature } from '../../src/arb-audit.mjs';
 const equal = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 const unique = items => [...new Set(items)].sort();
 const control = node => node.type === TYPE.select || node.type === TYPE.plural;
+const markup = /<\/?[A-Za-z][A-Za-z0-9:_-]*(?=\s|\/?>)(?:[^"'<>]|"[^"]*"|'[^']*')*>/g;
+const printf = /%%|%(?:(?:\d+)\$)?[-+#0 ]*(?:\d+|\*(?:\d+\$)?)?(?:\.(?:\d+|\*(?:\d+\$)?))?[sdif]/g;
+
+export function hasLinguisticText(nodes) {
+  return nodes.some(node => node.type === TYPE.literal
+    ? /\p{L}/u.test(node.value.replace(markup, '').replace(printf, '').replace(/&(?:#\d+|#x[\da-fA-F]+|[A-Za-z][A-Za-z0-9]+);/g, ''))
+    : node.options && Object.values(node.options).some(option => hasLinguisticText(option.value)));
+}
 const label = node => node.type === TYPE.plural ? node.pluralType : 'select';
 const ruleCache = new Map();
 function categories(locale, type) {
@@ -50,9 +58,12 @@ export function inspectMessage(text, locale) {
 // Compare each select/plural scope rather than just a global union. A plural
 // moved out of one select branch must not be masked by another identical plural.
 function compareScopes(source, target, path, pluralErrors, placeholderErrors) {
-  for (const node of source.filter(n => n.type === TYPE.argument)) {
-    if (!target.some(n => n.type === TYPE.argument && n.value === node.value)) placeholderErrors.push(`${path}: bare argument ${node.value} was removed or changed to a formatted/control argument`);
+  for (const name of unique(source.filter(n => n.type === TYPE.argument).map(n => n.value))) {
+    const expected = source.filter(n => n.type === TYPE.argument && n.value === name).length;
+    const actual = target.filter(n => n.type === TYPE.argument && n.value === name).length;
+    if (actual < expected) placeholderErrors.push(`${path}: bare argument ${name} expected ${expected} occurrences, got ${actual}`);
   }
+  if (target.filter(n => n.type === TYPE.pound).length < source.filter(n => n.type === TYPE.pound).length) placeholderErrors.push(`${path}: ICU pound number token was removed`);
   function style(value) {
     if (value === undefined) return null;
     if (Array.isArray(value)) return value.map(style);
@@ -126,7 +137,7 @@ export function visibleLength(ast, locale) {
   const segmenter = new Intl.Segmenter(locale.replaceAll('_', '-'), { granularity: 'grapheme' });
   function length(nodes) {
     return nodes.reduce((sum, node) => {
-      if (node.type === TYPE.literal) return sum + [...segmenter.segment(node.value.replace(/<[^>]*>/g, ''))].length;
+      if (node.type === TYPE.literal) return sum + [...segmenter.segment(node.value.replace(markup, '').replace(printf, ''))].length;
       if (node.options) return sum + Math.max(0, ...Object.values(node.options).map(option => length(option.value)));
       return sum; // runtime values have no knowable display width
     }, 0);

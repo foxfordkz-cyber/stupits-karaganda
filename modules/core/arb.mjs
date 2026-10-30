@@ -79,6 +79,9 @@ export function arbSnapshot(arb) {
 export function createBundle(source, target, sourceLocale, targetLocale, diagnostics) {
   const entries = [];
   for (const [key, originals] of source.groups) {
+    // Keep invalid identities in diagnostics/audit without losing the remaining
+    // valid messages to bundle validation or encodeURIComponent exceptions.
+    if (!key.trim() || !key.isWellFormed()) continue;
     if (originals.some(p => typeof p.value !== 'string') || new Set(originals.map(p => p.value)).size > 1) continue;
     const targets = target.groups.get(key) ?? [];
     if (targets.some(p => typeof p.value !== 'string')) continue;
