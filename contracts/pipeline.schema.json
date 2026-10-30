@@ -1,0 +1,229 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://locqa.local/pipeline.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "mode",
+    "working_directory",
+    "stages"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "1.0"
+    },
+    "mode": {
+      "enum": [
+        "production",
+        "synthetic"
+      ]
+    },
+    "working_directory": {
+      "type": "string",
+      "minLength": 1
+    },
+    "timeout_ms": {
+      "type": "integer",
+      "minimum": 50,
+      "maximum": 600000
+    },
+    "stages": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "normalize",
+        "core",
+        "language",
+        "render"
+      ],
+      "properties": {
+        "normalize": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "executable",
+            "argv"
+          ],
+          "properties": {
+            "executable": {
+              "type": "string",
+              "minLength": 1
+            },
+            "argv": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "timeout_ms": {
+              "type": "integer",
+              "minimum": 50,
+              "maximum": 600000
+            },
+            "optional_argv": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "resolutions": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "core": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "executable",
+            "argv"
+          ],
+          "properties": {
+            "executable": {
+              "type": "string",
+              "minLength": 1
+            },
+            "argv": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "timeout_ms": {
+              "type": "integer",
+              "minimum": 50,
+              "maximum": 600000
+            },
+            "optional_argv": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "resolutions": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "language": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "executable",
+            "argv"
+          ],
+          "properties": {
+            "executable": {
+              "type": "string",
+              "minLength": 1
+            },
+            "argv": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "timeout_ms": {
+              "type": "integer",
+              "minimum": 50,
+              "maximum": 600000
+            },
+            "optional_argv": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "resolutions": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "render": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "executable",
+            "argv"
+          ],
+          "properties": {
+            "executable": {
+              "type": "string",
+              "minLength": 1
+            },
+            "argv": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "timeout_ms": {
+              "type": "integer",
+              "minimum": 50,
+              "maximum": 600000
+            },
+            "optional_argv": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "resolutions": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "export": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "executable",
+            "argv"
+          ],
+          "properties": {
+            "executable": {
+              "type": "string",
+              "minLength": 1
+            },
+            "argv": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "timeout_ms": {
+              "type": "integer",
+              "minimum": 50,
+              "maximum": 600000
+            },
+            "optional_argv": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "resolutions": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

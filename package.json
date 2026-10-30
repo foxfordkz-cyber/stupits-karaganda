@@ -15,7 +15,14 @@
     "sample-review": "node scripts/sample-review.mjs",
     "merge-reports": "node scripts/merge-reports.mjs",
     "release-check": "node scripts/release-check.mjs",
-    "flutter-smoke": "node scripts/flutter-smoke.mjs"
+    "flutter-smoke": "node scripts/flutter-smoke.mjs",
+    "audit-inputs": "node scripts/audit-inputs.mjs",
+    "run-pipeline": "node scripts/run-pipeline.mjs",
+    "score-review": "node scripts/score-review.mjs",
+    "blind-review": "node scripts/blind-review.mjs",
+    "score-blind": "node scripts/score-blind.mjs",
+    "package-submission": "node scripts/package-submission.mjs",
+    "integration-smoke": "node scripts/integration-smoke.mjs"
   },
   "dependencies": {
     "@formatjs/icu-messageformat-parser": "3.5.22",

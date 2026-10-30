@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { inspectArb, technicalSignature } from '../src/arb-audit.mjs';
+import { inspectArb, technicalSignature, isFlutterResourceName } from '../src/arb-audit.mjs';
 
 const requiredBy = (source, target) => {
   const expected = technicalSignature(source).icuRequirements;
@@ -103,4 +103,9 @@ test('ARB inspection retains resource duplicates and nested metadata diagnostics
   assert.equal(arb.duplicates[0].conflicting, true);
   assert.deepEqual(arb.entries.map(entry => entry.occurrence), [1, 2]);
   assert.deepEqual(arb.nestedDuplicates, ['/@x/placeholders/n/type']);
+});
+
+test('Flutter resource names reject legacy upper-case and metadata-like keys',()=>{
+ for(const name of ['lowerCase','lower_snake','name2','$value']) assert.equal(isFlutterResourceName(name),true,name);
+ for(const name of ['UpperCase','_private','1number','name@description','space name','']) assert.equal(isFlutterResourceName(name),false,name);
 });

@@ -1,0 +1,76 @@
+{
+  "schema_version": "1.0",
+  "mode": "production",
+  "working_directory": "../..",
+  "timeout_ms": 120000,
+  "stages": {
+    "normalize": {
+      "executable": "node",
+      "argv": [
+        "modules/core/normalize.mjs",
+        "--source",
+        "{source}",
+        "--target",
+        "{target}",
+        "--out",
+        "{bundle}"
+      ]
+    },
+    "core": {
+      "executable": "node",
+      "argv": [
+        "modules/core/check.mjs",
+        "--bundle",
+        "{bundle}",
+        "--glossary",
+        "{glossary}",
+        "--out",
+        "{core_report}"
+      ]
+    },
+    "language": {
+      "executable": "node",
+      "argv": [
+        "modules/language/check.mjs",
+        "--bundle",
+        "{bundle}",
+        "--glossary",
+        "{glossary}",
+        "--out",
+        "{language_report}"
+      ]
+    },
+    "render": {
+      "executable": "node",
+      "argv": [
+        "modules/report/render.mjs",
+        "--bundle",
+        "{bundle}",
+        "--report",
+        "{report}",
+        "--out",
+        "{html}"
+      ]
+    },
+    "export": {
+      "executable": "node",
+      "argv": [
+        "modules/core/export.mjs",
+        "--source",
+        "{source}",
+        "--target",
+        "{target}",
+        "--reviews",
+        "{reviews}",
+        "--out",
+        "{fixed}"
+      ],
+      "optional_argv": {
+        "resolutions": [
+          "--resolutions",
+          "{resolutions}"
+        ]
+      }
+    }
+  }
+}

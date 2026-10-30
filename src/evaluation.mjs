@@ -114,12 +114,14 @@ export function sampleForReview(report, { size = 100, seed } = {}) {
     schema_version: 1,
     evaluation_scope: 'human_precision_sample',
     seed, sampling_method: 'sha256_seeded_rank_without_replacement',
+    report_sha256: createHash('sha256').update(stableJson([...report].sort((a,b)=>identity(a)<identity(b)?-1:identity(a)>identity(b)?1:0)), 'utf8').digest('hex'),
     population_size: unique.size, duplicate_report_rows: report.length - unique.size,
     requested_size: size, sample_size: Math.min(size, unique.size),
     instructions: 'A human must mark whether each finding and its issue type are correct. Keep unreviewed answers null. Fix the seed before inspection; do not choose a seed for favourable results.',
     rows: ranked.slice(0, size).map(({ id, finding }) => ({
       sample_id: createHash('sha256').update(id, 'utf8').digest('hex'),
-      finding: structuredClone(finding), reviewed: null, correct: null, reviewer: null, notes: '',
+      finding_sha256: createHash('sha256').update(stableJson(finding), 'utf8').digest('hex'),
+      finding: structuredClone(finding), reviewed: null, correct: null, reviewer: null, reviewed_at: null, notes: '',
     })),
   };
 }

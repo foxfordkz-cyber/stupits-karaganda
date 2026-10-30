@@ -21,6 +21,7 @@ jobs:
       - run: npm test
       - run: npm run check
       - run: npm run demo
+      - run: npm run run-pipeline -- --config fixtures/synthetic/adapters/pipeline.json --source fixtures/synthetic/source.arb --target fixtures/synthetic/target.arb --glossary fixtures/synthetic/glossary.csv --out work/pipeline-ci --synthetic
 
   flutter-synthetic:
     runs-on: ubuntu-latest
@@ -33,6 +34,17 @@ jobs:
       - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
         with:
           channel: stable
+          flutter-version: 3.47.4
           cache: true
       - run: npm ci
-      - run: npm run flutter-smoke -- --source fixtures/synthetic/flutter-valid/source.arb --target fixtures/synthetic/flutter-valid/target.arb --out work/flutter-ci
+      - run: npm run integration-smoke -- --out work/integration-ci
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: synthetic-integration-evidence
+          retention-days: 7
+          path: |
+            work/integration-ci/integration-evidence.json
+            work/integration-ci/flutter/evidence.json
+            work/integration-ci/flutter/flutter.log
+            work/integration-ci/package/manifest.json

@@ -129,3 +129,8 @@ export function technicalSignature(text) {
     icuRequirements: [...requirements].sort()
   };
 }
+
+// Flutter 3.47 gen_l10n getter/resource-name validation, before code generation.
+export function isFlutterResourceName(name) {
+  return typeof name === 'string' && /^[a-z$][A-Za-z0-9_$]*$/.test(name);
+}

@@ -1,0 +1,56 @@
+{
+  "schema_version": "1.0",
+  "mode": "synthetic",
+  "working_directory": "../../..",
+  "timeout_ms": 30000,
+  "stages": {
+    "normalize": {
+      "executable": "node",
+      "argv": [
+        "fixtures/synthetic/adapters/adapter.mjs",
+        "normalize",
+        "--source",
+        "{source}",
+        "--target",
+        "{target}",
+        "--out",
+        "{bundle}"
+      ]
+    },
+    "core": {
+      "executable": "node",
+      "argv": [
+        "fixtures/synthetic/adapters/adapter.mjs",
+        "core",
+        "--bundle",
+        "{bundle}",
+        "--out",
+        "{core_report}"
+      ]
+    },
+    "language": {
+      "executable": "node",
+      "argv": [
+        "fixtures/synthetic/adapters/adapter.mjs",
+        "language",
+        "--bundle",
+        "{bundle}",
+        "--out",
+        "{language_report}"
+      ]
+    },
+    "render": {
+      "executable": "node",
+      "argv": [
+        "fixtures/synthetic/adapters/adapter.mjs",
+        "render",
+        "--bundle",
+        "{bundle}",
+        "--report",
+        "{report}",
+        "--out",
+        "{html}"
+      ]
+    }
+  }
+}

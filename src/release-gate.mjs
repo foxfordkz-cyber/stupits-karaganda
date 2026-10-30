@@ -1,13 +1,19 @@
 import { assertContract, hashText } from './contracts.mjs';
-import { inspectArb, technicalSignature } from './arb-audit.mjs';
+import { inspectArb, technicalSignature, isFlutterResourceName } from './arb-audit.mjs';
+import { verifyResolutions } from './duplicate-resolutions.mjs';
 
-export function checkRelease({ sourceText, originalText, fixedText, report, reviews }) {
+export function checkRelease({ sourceText, originalText, fixedText, report, reviews, resolutions }) {
   assertContract('report', report); assertContract('reviews', reviews);
   const source = inspectArb(sourceText), original = inspectArb(originalText), fixed = inspectArb(fixedText);
   const errors = [], warnings = [], changed = [];
+  const resolved = verifyResolutions(resolutions,sourceText,originalText,original);
   for (const [name,arb] of [['source',source],['original-target',original],['fixed',fixed]]) {
+    for (const key of arb.strings.keys()) if (!isFlutterResourceName(key)) errors.push(name+': invalid Flutter resource name '+key);
     for (const path of arb.nestedDuplicates) errors.push(`${name}: duplicate metadata attribute ${path}`);
     for (const d of arb.duplicates) {
+      if (name === 'original-target' && d.conflicting && resolved.has(d.key)) {
+        warnings.push('Explicitly resolved duplicate target key: '+d.key); continue;
+      }
       if (d.conflicting || name === 'fixed') errors.push(`${name}: ${d.conflicting ? 'conflicting' : 'repeated'} key ${d.key}; explicit resolution required`);
       else warnings.push(`${name}: identical duplicate key ${d.key}`);
     }
@@ -56,6 +62,13 @@ export function checkRelease({ sourceText, originalText, fixedText, report, revi
   for (const d of reviews.decisions) {
     if (d.decision !== 'rejected' && fixed.strings.get(d.key) !== d.approved_text) errors.push('Approved change was not exported: ' + d.key);
   }
+  for (const [key,resolution] of resolved) {
+    const d=decisions.get(key), value=fixed.strings.get(key);
+    const currentCorrection=d && d.decision!=='rejected' && d.approved_text===value
+      && d.source_hash===hashText(source.strings.get(key) ?? '')
+      && d.original_text===original.strings.get(key);
+    if (value!==resolution.chosen_text && !currentCorrection) errors.push('Resolved variant not exported or explicitly corrected: '+key);
+  }
   for (const f of report) {
     if (!source.strings.has(f.key) || source.strings.get(f.key) !== f.source) errors.push('Report source does not match input: ' + f.key);
     if ((original.strings.get(f.key) ?? '') !== f.target) errors.push('Report target does not match original input: ' + f.key);
@@ -68,6 +81,7 @@ export function checkRelease({ sourceText, originalText, fixedText, report, revi
     scope: 'artifact_consistency_only',
     flutter_verified: false,
     changed_count: changed.length,
+    resolved_duplicate_count: resolved.size,
     reviewed_changed_count: changed.filter(k => {
       const d = decisions.get(k);
       const old = original.strings.has(k) ? original.strings.get(k) : null;

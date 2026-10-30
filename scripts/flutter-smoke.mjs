@@ -8,7 +8,7 @@ import { hashText } from '../src/contracts.mjs';
 await main(async () => {
   const a = args({
     source:{type:'string'},target:{type:'string'},out:{type:'string'},
-    'source-locale':{type:'string'},'target-locale':{type:'string'}
+    'source-locale':{type:'string'},'target-locale':{type:'string'},offline:{type:'boolean'}
   },['source','target','out']);
   const sourceText = await readFile(a.source,'utf8'), targetText = await readFile(a.target,'utf8');
   function locale(text,explicit) {
@@ -57,7 +57,8 @@ await main(async () => {
     await writeJson(join(out,'evidence.json'),evidence);
     return result.code === 0;
   }
-  for (const argv of [['--version'],['pub','get'],['gen-l10n']]) {
+  const commands = a.offline ? [['--no-version-check','--version'],['--no-version-check','pub','get','--offline'],['--no-version-check','gen-l10n']] : [['--no-version-check','--version'],['--no-version-check','pub','get'],['--no-version-check','gen-l10n']];
+  for (const argv of commands) {
     if (!await run(argv)) {
       evidence.status='failed'; evidence.finished_at=new Date().toISOString();
       await writeJson(join(out,'evidence.json'),evidence);
@@ -65,11 +66,12 @@ await main(async () => {
     }
   }
   // Confirm generation happened, rather than accepting a silent no-op.
-  try { await readFile(join(out,'lib','generated','app_localizations.dart'),'utf8'); }
+  try { evidence.generated_sha256=hashText(await readFile(join(out,'lib','generated','app_localizations.dart'),'utf8')); }
   catch (error) {
     evidence.status='failed'; evidence.error='Generated Dart output missing: '+error.message;
     await writeJson(join(out,'evidence.json'),evidence); throw error;
   }
+  evidence.log_sha256=hashText(log);
   evidence.status='passed'; evidence.finished_at=new Date().toISOString();
   await writeJson(join(out,'evidence.json'),evidence);
   console.log('FLUTTER VERIFIED: ' + join(out,'evidence.json'));

@@ -5,7 +5,7 @@ import addFormats from 'ajv-formats';
 
 const ajv = new Ajv2020({ allErrors: true, strict: true });
 addFormats(ajv);
-for (const name of ['finding', 'report', 'bundle', 'reviews']) {
+for (const name of ['finding', 'report', 'bundle', 'reviews', 'duplicate-resolutions']) {
   ajv.addSchema(JSON.parse(readFileSync(new URL(`../contracts/${name}.schema.json`, import.meta.url), 'utf8')));
 }
 export function hashText(value) {
