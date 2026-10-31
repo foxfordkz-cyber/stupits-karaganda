@@ -1,4 +1,4 @@
-"""Local-only bridge from the team's validated bundle/CSV to the Python module.
+"""Bridge from the team's validated bundle/CSV to the Python module.
 
 Use check.mjs: it applies the repository's shared JSON Schema and hash validator.
 No source file is modified and no actual handout data belongs in this repository.
@@ -79,29 +79,46 @@ def main(argv=None):
     p.add_argument('--glossary', required=True, type=Path)
     p.add_argument('--out', required=True, type=Path)
     p.add_argument('--cache', type=Path)
+    p.add_argument('--limit', type=int)
+    p.add_argument('--provider-config', type=Path)
+    p.add_argument('--max-requests', type=int, default=0)
+    p.add_argument('--max-tokens', type=int, default=0)
+    p.add_argument('--max-cost-usd', type=float, default=0.0)
     args = p.parse_args(argv)
     try:
+        if args.limit is not None and args.limit < 1:
+            raise ValueError('limit must be positive')
         out = private_path(args.out)
         details = private_path(out.with_name(out.name + '.details'))
         cache = private_path(args.cache or (out.parent / '.bekzat-cache'))
         if out.exists() or details.exists():
             raise ValueError('out and details must be new')
-        for source in (args.bundle.resolve(), args.glossary.resolve()):
+        sources = [args.bundle, args.glossary]
+        if args.provider_config:
+            sources.append(args.provider_config)
+        for source in map(Path.resolve, sources):
             if source == out or source.is_relative_to(details) or source.is_relative_to(cache):
                 raise ValueError('input overlaps runtime output')
         bundle = strict_json(read_bounded(args.bundle))
         records, skipped = prepare_bundle(bundle)
         glossary = load_glossary(args.glossary)
+        provider = strict_json(read_bounded(args.provider_config, 1_000_000)) if args.provider_config else None
+        selected = records[:args.limit] if args.limit else records
         details.mkdir(parents=True, exist_ok=False)
-        result = analyze(records, glossary, cache_dir=cache, log_path=details / 'events.jsonl')
-        for loc in result['finding_index']:
-            record = records[loc['input_index']]
+        result = analyze(selected, glossary, cache_dir=cache, log_path=details / 'events.jsonl',
+                         provider=provider, max_requests=args.max_requests,
+                         max_tokens=args.max_tokens, max_cost_usd=args.max_cost_usd)
+        for loc in result['finding_index'] + result['proposals']:
+            record = selected[loc['input_index']]
             for key in ('entry_id', 'bundle_index', 'target_hash'):
                 loc[key] = record[key]
         result['metrics']['bundle_entries'] = len(bundle['entries'])
         result['metrics']['entries_delegated_to_core'] = len(skipped)
-        result['metrics']['adapter_mode'] = 'team_bundle_local_only'
-        for name in ('finding_index', 'diagnostics', 'metrics'):
+        result['metrics']['available_input_records'] = len(records)
+        result['metrics']['selected_records'] = len(selected)
+        result['metrics']['selection'] = 'first_n' if args.limit else 'all'
+        result['metrics']['adapter_mode'] = 'team_bundle_' + result['metrics']['mode']
+        for name in ('finding_index', 'proposals', 'diagnostics', 'metrics'):
             write_json(details / (name + '.json'), result[name])
         write_json(details / 'skipped_entries.json', skipped)
         # Write the official output last; the runner must still check process exit status.

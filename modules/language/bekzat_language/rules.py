@@ -1,14 +1,19 @@
 """Conservative diagnostics. No general spell checker or measured quality score."""
 import re
+import unicodedata
+from functools import lru_cache
 from .contracts import finding
+from .proposals import spelling_proposal
 
-RULES_VERSION = "kk-conservative-1.0"
+RULES_VERSION = "kk-contextual-1.2.0"
 PLACEHOLDER = re.compile(r"\{[A-Za-z_][A-Za-z_0-9]*\}")
 WORD = re.compile(r"[^\W\d_]+(?:['’ʻ‘][^\W\d_]+)*", re.UNICODE)
 KK_LETTERS = re.compile("[әғқңөұүһі]", re.I)
 # Small generic examples authored for this module, not extracted from supplied data.
 SPELLING = {"сәлеметсізбе": "сәлеметсіз бе", "кош келдіңіз": "қош келдіңіз",
             "ойыншынын": "ойыншының", "сыйлык": "сыйлық", "кауіпсіздік": "қауіпсіздік"}
+KNOWN_WORDS = set('ойыншы сыйлық қауіпсіздік кіру шығу тапсырма жалғастыру таңдау сәлеметсіз келдіңіз'.split())
+HOMOGLYPHS = str.maketrans('ABCEHIKMOPTXaceiopxy', 'АВСЕНІКМОРТХасеіорху')
 LANGUAGE_WORDS = {
     "ru": set("пожалуйста нажмите чтобы невозможно недостаточно средств покупка отменить продолжить подтвердить отправить удалить выберите ошибка получено доступно выполнено необходимо сообщение ваш ваша ваши игрока завершено".split()),
     "en": set("please click purchase cancel continue confirm delete insufficient funds select choose reward received completed unable message your you the this".split()),
@@ -35,6 +40,7 @@ SUFFIX = re.compile(r"(?P<slot>\{[A-Za-z_][A-Za-z_0-9]*\})(?P<join>[-‐‑–'�
                     "|".join(sorted(SUFFIXES, key=len, reverse=True)) + r")(?!\w)", re.I)
 
 
+@lru_cache(maxsize=2048)
 def phrase_pattern(phrase):
     return re.compile(r"(?<!\w)" + re.escape(phrase) + r"(?!\w)", re.I)
 
@@ -54,22 +60,31 @@ def applicable(entry, record):
         hits(form, record["source"]) for form in entry["source_forms"])
 
 
-def protected_text(record):
+def protected_text(record, glossary=None):
     """Mask markup, URLs, slots and explicitly declared brands/names without changing offsets."""
     text = record["target"]
-    for pattern in (PLACEHOLDER, re.compile(r"https?://\S+"), re.compile(r"<[^>]*>")):
+    for pattern in (PLACEHOLDER, re.compile(r"https?://\S+"), re.compile(r"""<(?:[^"'<>]|"[^"]*"|'[^']*')*>"""),
+                    re.compile(r"[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}"),
+                    re.compile(r"%(?:\d+\$)?[-+#0 ]*(?:\d+|\*)?(?:\.(?:\d+|\*))?[sdif]|%%")):
         text = pattern.sub(lambda m: " " * len(m[0]), text)
     names = metadata(record).get("language_neutral_terms", [])
     if isinstance(names, list):
         for name in names:
             if isinstance(name, str) and name:
                 text = phrase_pattern(name).sub(lambda m: " " * len(m[0]), text)
+    if glossary:
+        # An explicitly allowed term is not a language/orthography error. Protect
+        # just that term: Russian/English prose around a brand remains detectable.
+        allowed = {form for entry in glossary['entries'] if applicable(entry, record)
+                   for form in entry['allowed_forms']}
+        for form in sorted(allowed, key=len, reverse=True):
+            text = phrase_pattern(form).sub(lambda m: ' ' * len(m[0]), text)
     return text
 
 
-def analyze_record(record, glossary):
+def analyze_record(record, glossary, *, proposals=None):
     target = record["target"]
-    masked = protected_text(record)
+    masked = protected_text(record, glossary)
     meta = metadata(record)
     out = []
     if meta.get("language_neutral") is True:
@@ -90,6 +105,27 @@ def analyze_record(record, glossary):
             out.append(finding(record, "orthography",
                 f'Подозрительное написание «{m[0]}» [{m.start()}:{m.end()}]; словарная подсказка модуля: «{good}».',
                 f'Вместо «{m[0]}» использовать «{good}», сохранив регистр начала предложения.', 0.85, "low"))
+            if proposals is not None:
+                candidate = spelling_proposal(record, len(out) - 1, m.start(), m.end(), good)
+                if candidate:
+                    proposals.append(candidate)
+    for m in WORD.finditer(masked):
+        word = m[0]
+        if not re.search('[A-Za-z]', word) or not re.search('[А-Яа-яӘәҒғҚқҢңӨөҰұҮүҺһІі]', word):
+            continue
+        corrected = word.translate(HOMOGLYPHS)
+        # No generic "mixed script is wrong" rule: require an exact known word.
+        if corrected.casefold() not in KNOWN_WORDS or corrected == word:
+            continue
+        proof = '; '.join(f'«{a}» U+{ord(a):04X} → «{b}» U+{ord(b):04X}'
+                          for a, b in zip(word, corrected) if a != b)
+        out.append(finding(record, 'orthography',
+            f'В слове «{word}» [{m.start()}:{m.end()}] смешаны латиница и кириллица: {proof}. После замены получается известное написание «{corrected}».',
+            f'Использовать «{corrected}» вместо «{word}».', 0.9, 'low'))
+        if proposals is not None:
+            candidate = spelling_proposal(record, len(out) - 1, m.start(), m.end(), corrected)
+            if candidate:
+                proposals.append(candidate)
     # Exact, contextual calque: possession of a choice. Never infer "machine generated" as a fact.
     m = re.fullmatch(r"\s*Сіз таңдауды жасадыңыз[.!]?\s*", target, re.I)
     if m and re.fullmatch(r"\s*Вы сделали выбор[.!]?\s*", record["source"], re.I):
@@ -110,11 +146,27 @@ def analyze_record(record, glossary):
     # Absence of Kazakh-specific letters alone is never an error.
     folded = masked.strip().casefold().rstrip(".!?")
     signals = {lang: sorted(set(words) & lexicon) for lang, lexicon in LANGUAGE_WORDS.items()}
+    context = record.get('context', {})
+    references = context.get('references', {}) if isinstance(context, dict) else {}
+    if not isinstance(references, dict):
+        references = {}
+    normalize = lambda s: unicodedata.normalize('NFC', s).strip().casefold()
+    reference_match = next(((language, locale) for locale, reference in sorted(references.items(), key=lambda item: str(item[0]))
+        if isinstance(locale, str) and isinstance(reference, str)
+        and (language := locale.lower().replace('_', '-').split('-')[0]) in {'en', 'uz'}
+        and normalize(target) == normalize(reference) and normalize(target) != normalize(record['source'])
+        and len(words) >= 2 and sum(map(len, words)) >= 8 and signals[language]
+        and not KK_LETTERS.search(masked)), None)
     lang = max(signals, key=lambda x: len(signals[x]))
     exact_ui = folded in UI_TRANSLATIONS
     hints = [(w, LEXICAL_HINTS[w]) for w in signals[lang] if w in LEXICAL_HINTS]
-    if exact_ui or (hints and len(signals[lang]) >= 2 and len(signals[lang]) / max(len(words), 1) >= 0.35 and not KK_LETTERS.search(masked)):
+    if reference_match:
+        lang = reference_match[0]
+        hints = [(w, LEXICAL_HINTS[w]) for w in signals[lang] if w in LEXICAL_HINTS]
+    if exact_ui or (reference_match and hints) or (hints and len(signals[lang]) >= 2 and len(signals[lang]) / max(len(words), 1) >= 0.35 and not KK_LETTERS.search(masked)):
         evidence = f'В тексте для {record["locale"]} обнаружены лексические признаки {lang}: «' + '», «'.join(signals[lang]) + '». Это эвристика, а не полноценное распознавание языка.'
+        if reference_match:
+            evidence += f' Весь target после NFC/trim/casefold совпадает с дополнительным переводом references.{reference_match[1]}: «{target}»; с RU-исходником он не совпадает.'
         suggestion = UI_TRANSLATIONS.get(folded)
         if suggestion is None:
             suggestion = 'Предлагаемые соответствия для фрагментов: ' + '; '.join(f'«{w}» → «{v}»' for w, v in hints[:3]) + '. Согласовать формы с предложением и сохранить подстановки; это не готовая замена всей строки.'
@@ -126,11 +178,19 @@ def term_contexts(records, glossary):
     """Only explicitly declared concept variants; no comparing arbitrary inflected text."""
     groups = {}
     for index, record in enumerate(records):
+        if metadata(record).get('language_neutral') is True:
+            continue
+        masked = protected_text(record)
         for entry in glossary["entries"]:
             if entry.get("consistent") is not True or not applicable(entry, record):
                 continue
-            for form, variant in entry.get("variants", {}).items():
-                if hits(form, protected_text(record)):
+            matched = sorted(((m.start(), m.end(), form, variant)
+                for form, variant in entry.get('variants', {}).items() for m in hits(form, masked)),
+                key=lambda x: (-(x[1] - x[0]), x[0], x[2]))
+            occupied = []
+            for start, end, form, variant in matched:
+                if not any(start < b and end > a for a, b in occupied):
+                    occupied.append((start, end))
                     scope = "все разделы" if entry.get("consistency_scope") == "global" else record.get("category", "")
                     group = (entry["id"], record["locale"].replace("_", "-").lower(), scope)
                     groups.setdefault(group, []).append({"record_index": index, "key": record["key"],

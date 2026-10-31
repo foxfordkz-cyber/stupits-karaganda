@@ -61,6 +61,7 @@ def main(argv=None):
         result["metrics"]["selected_records"] = len(selected)
         result["metrics"]["selection"] = "first_n" if args.limit else "all"
         for key, filename in (("findings", "report.json"), ("finding_index", "finding_index.json"),
+                              ("proposals", "proposals.json"),
                               ("diagnostics", "diagnostics.json"), ("metrics", "metrics.json")):
             write_json(out / filename, result[key])
         m = result["metrics"]

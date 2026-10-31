@@ -9,6 +9,7 @@ from .contracts import (canonical, digest, identity, record_errors, validate_fin
 from .provider import (PROMPT_VERSION, build_request, call_provider, cost, usage_of,
                        validate_config, validate_issues)
 from .rules import RULES_VERSION, analyze_record, term_contexts
+from .proposals import validate_proposal
 from .storage import Cache, private_path
 
 
@@ -59,7 +60,7 @@ def analyze(records, glossary, *, cache_dir, provider=None, max_requests=0, max_
     except (TypeError, ValueError, UnicodeError, RecursionError):
         records_hash = None
     contexts, consistency = term_contexts(good, glossary)
-    metrics = {"started_at_utc": started_at, "engine_version": "1.1.0", "rules_version": RULES_VERSION,
+    metrics = {"started_at_utc": started_at, "engine_version": "1.2.0", "rules_version": RULES_VERSION,
         "input_records": len(records), "valid_records": len(good),
         "quarantined_records": len(diagnostics), "records_hash": records_hash,
         "records_hash_scope": "complete_input" if records_hash else "unavailable_invalid_input",
@@ -76,7 +77,7 @@ def analyze(records, glossary, *, cache_dir, provider=None, max_requests=0, max_
     if provider:
         metrics["provider"] = {k: provider[k] for k in ("provider_id", "model_id", "revision",
             "input_usd_per_million", "output_usd_per_million")}
-    findings, finding_index, events = [], [], []
+    findings, finding_index, events, proposals = [], [], [], []
     provider_stopped = False
     logfile = None
     if log_path is not None:
@@ -93,22 +94,28 @@ def analyze(records, glossary, *, cache_dir, provider=None, max_requests=0, max_
                 local = cache.get(local_key)
                 if local is not None:
                     try:
-                        if not isinstance(local, list):
+                        if not isinstance(local, dict) or set(local) != {'findings', 'proposals'}:
                             raise ValueError("invalid cached findings")
-                        for f in local:
+                        if not isinstance(local['findings'], list) or not isinstance(local['proposals'], list):
+                            raise ValueError("invalid cached lists")
+                        for f in local['findings']:
                             validate_finding(f, record)
+                        for p in local['proposals']:
+                            validate_proposal(p, record, local['findings'])
                     except (ValueError, TypeError):
                         local = None
                         cache.delete(local_key)
                 if local is None:
-                    local = analyze_record(record, glossary)
+                    local_proposals = []
+                    local = {'findings': analyze_record(record, glossary, proposals=local_proposals),
+                             'proposals': local_proposals}
                     cache.put(local_key, local)
                     metrics["local_cache_misses"] += 1
                     event["local_cache"] = "miss"
                 else:
                     metrics["local_cache_hits"] += 1
                     event["local_cache"] = "hit"
-                candidates = [(f, "local") for f in local] + [(f, "corpus") for f in consistency[n]]
+                candidates = [(f, "local") for f in local['findings']] + [(f, "corpus") for f in consistency[n]]
                 if provider:
                     request = build_request(record, glossary, contexts[n], provider)
                     model_key = digest({"kind": "model", "version": PROMPT_VERSION,
@@ -173,16 +180,22 @@ def analyze(records, glossary, *, cache_dir, provider=None, max_requests=0, max_
                         candidates.extend((f, "model") for f in model_findings)
                 else:
                     event["model_status"] = "not_configured"
-                seen = set()
+                seen = {}
                 for f, origin in candidates:
                     validate_finding(f, record)
                     token = digest(f)
                     if token in seen:
                         continue
-                    seen.add(token)
+                    seen[token] = len(findings)
                     finding_index.append({"finding_index": len(findings), "input_index": input_indices[n],
                         **identity(record), "origin": origin, "record_hash": digest(record)})
                     findings.append(f)
+                for p in local['proposals']:
+                    validate_proposal(p, record, local['findings'])
+                    exported = {k: v for k, v in p.items() if k != 'local_finding_index'}
+                    exported['finding_index'] = seen[digest(local['findings'][p['local_finding_index']])]
+                    exported['input_index'] = input_indices[n]
+                    proposals.append(exported)
                 event["elapsed_seconds"] = round(time.perf_counter() - record_started, 6)
                 events.append(event)
                 if logfile:
@@ -196,6 +209,9 @@ def analyze(records, glossary, *, cache_dir, provider=None, max_requests=0, max_
             logfile.close()
     metrics["elapsed_seconds"] = round(time.perf_counter() - start, 6)
     metrics["findings"] = len(findings)
+    metrics["proposals"] = len(proposals)
+    metrics["records_with_findings"] = len({f["input_index"] for f in finding_index})
+    metrics["counts_by_severity"] = dict(sorted(Counter(f["severity"] for f in findings).items()))
     metrics["counts_by_issue"] = dict(sorted(Counter(f["issue_type"] for f in findings).items()))
     metrics["local_scan_complete"] = len(good) == len(events)
     metrics["model_scan_complete"] = bool(provider) and metrics["model_records_completed"] == len(good)
@@ -203,4 +219,4 @@ def analyze(records, glossary, *, cache_dir, provider=None, max_requests=0, max_
     metrics["cost_usd_total"] = metrics["cost_usd_known"] if metrics["cost_status"] == "known" else None
     metrics["cost_scope"] = "provider token charges at configured rates; excludes hardware, development and subscription costs"
     return {"findings": findings, "finding_index": finding_index, "diagnostics": diagnostics,
-            "metrics": metrics, "events": events}
+            "metrics": metrics, "events": events, "proposals": proposals}
