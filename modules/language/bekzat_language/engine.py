@@ -60,7 +60,7 @@ def analyze(records, glossary, *, cache_dir, provider=None, max_requests=0, max_
     except (TypeError, ValueError, UnicodeError, RecursionError):
         records_hash = None
     contexts, consistency = term_contexts(good, glossary)
-    metrics = {"started_at_utc": started_at, "engine_version": "1.3.0", "rules_version": RULES_VERSION,
+    metrics = {"started_at_utc": started_at, "engine_version": "1.3.1", "rules_version": RULES_VERSION,
         "input_records": len(records), "valid_records": len(good),
         "quarantined_records": len(diagnostics), "records_hash": records_hash,
         "records_hash_scope": "complete_input" if records_hash else "unavailable_invalid_input",

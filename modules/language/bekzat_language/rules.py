@@ -5,7 +5,7 @@ from functools import lru_cache
 from .contracts import finding
 from .proposals import spelling_proposal
 
-RULES_VERSION = "kk-contextual-1.3.0"
+RULES_VERSION = "kk-contextual-1.3.1"
 BRACED_SLOT = r"\{(?P<name>[A-Za-z_][A-Za-z_0-9]*)(?:\s*,\s*(?:number|date|time)(?:\s*,[^{}]*)?)?\}"
 PRINTF_SLOT = r"%(?:\d+\$)?[-+#0 ]*(?:\d+|\*(?:\d+\$)?)?(?:\.(?:\d+|\*(?:\d+\$)?))?[sdif]"
 DYNAMIC_SLOT = re.compile(r"%%|" + BRACED_SLOT + "|" + PRINTF_SLOT)
@@ -17,6 +17,8 @@ SPELLING = {"сәлеметсізбе": "сәлеметсіз бе", "кош к�
             "ойыншынын": "ойыншының", "сыйлык": "сыйлық", "кауіпсіздік": "қауіпсіздік"}
 KNOWN_WORDS = set('ойыншы сыйлық қауіпсіздік кіру шығу тапсырма жалғастыру таңдау сәлеметсіз келдіңіз'.split())
 HOMOGLYPHS = str.maketrans('ABCEHIKMOPTXaceiopxy', 'АВСЕНІКМОРТХасеіорху')
+HIDDEN_LETTERS = '\u200b\u200c\u200d'
+HIDDEN_WORD = re.compile(r"[^\W\d_]+(?:[\u200b\u200c\u200d]+[^\W\d_]+)+")
 LANGUAGE_WORDS = {
     "ru": set("пожалуйста нажмите чтобы невозможно недостаточно средств покупка отменить продолжить подтвердить отправить удалить выберите ошибка получено доступно выполнено необходимо сообщение ваш ваша ваши игрока завершено".split()),
     "en": set("please click purchase cancel continue confirm delete insufficient funds select choose reward received completed unable message your you the this".split()),
@@ -162,6 +164,17 @@ def analyze_record(record, glossary, *, proposals=None):
             candidate = spelling_proposal(record, len(out) - 1, m.start(), m.end(), corrected)
             if candidate:
                 proposals.append(candidate)
+    for m in HIDDEN_WORD.finditer(masked):
+        corrected = m[0].translate({ord(char): None for char in HIDDEN_LETTERS})
+        if corrected.casefold() not in KNOWN_WORDS:
+            continue
+        proof = ', '.join(f'U+{ord(char):04X} в позиции {m.start() + index}'
+                          for index, char in enumerate(m[0]) if char in HIDDEN_LETTERS)
+        out.append(finding(record, 'orthography',
+            f'Внутри фрагмента «{m[0]}» [{m.start()}:{m.end()}] присутствуют невидимые форматирующие символы: {proof}. После их удаления получается известное написание «{corrected}».',
+            f'Проверить назначение невидимых символов внутри слова и использовать «{corrected}», если они не предусмотрены интерфейсом.',
+            0.85, 'low'))
+        # No whole-string candidate: format controls require deliberate human review.
     # Exact, contextual calque: possession of a choice. Never infer "machine generated" as a fact.
     m = re.fullmatch(r"\s*Сіз таңдауды жасадыңыз[.!]?\s*", target, re.I)
     if m and re.fullmatch(r"\s*Вы сделали выбор[.!]?\s*", record["source"], re.I):
