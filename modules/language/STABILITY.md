@@ -62,7 +62,7 @@ python -m unittest discover -s tests -v
 Этот модуль не может подтвердить доступность сайта, состояние базы сайта, секреты deployment, HTTPS, лимиты хостинга, health-check, rollback или нагрузочную устойчивость frontend/backend. Такие проверки выполняются в репозитории интегратора после получения доступа. Исходные выгрузки, частные отчёты и кэш остаются вне Git; схема находки и `reviewed_by_human=false` сохранены.
 # Version 1.4 integration
 
-158 Python regressions, including bounded morphology, terminology inflections, polarity,
+160 Python regressions, including bounded morphology, terminology inflections, polarity,
 inline foreign text, transpositions, checkpoint/crash recovery and review-queue identity.
 The complete Python suite is now called from the module's Node test, so shared npm CI
 executes it without changes to root workflows. Repository Node count: 159.
@@ -74,3 +74,9 @@ oversized request cannot reserve charges or launch a provider. A failed final ca
 flush marks partial. See PERFORMANCE.md for checkpoint durability and interrupted runs.
 Review handoff is a sidecar; existing reviews/history/export contracts remain unchanged.
 Real core + report CLI smoke passed on synthetic data; no deployment uptime claim.
+
+Running the full Python suite in GitHub CI exposed a platform/interpreter difference:
+the JSON decoder on Linux accepted 5000 levels where the local decoder raised
+RecursionError. The loader now enforces 128 nesting levels before parsing, with escaped
+quotes and brackets inside strings excluded. Tests cover 128/129 levels and quoted
+brackets. This makes rejection deterministic without changing global recursion limits.

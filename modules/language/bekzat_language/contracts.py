@@ -20,6 +20,27 @@ def digest(value):
 
 
 def strict_json(text):
+    # CPython versions/platforms differ in JSON decoder recursion behavior.
+    # Bound syntax depth before parsing instead of relying on RecursionError.
+    if not isinstance(text, str):
+        raise ValueError('JSON must be text')
+    depth, quoted, escaped = 0, False, False
+    for char in text:
+        if quoted:
+            if escaped:
+                escaped = False
+            elif char == '\\':
+                escaped = True
+            elif char == '"':
+                quoted = False
+        elif char == '"':
+            quoted = True
+        elif char in '[{':
+            depth += 1
+            if depth > 128:
+                raise ValueError('JSON nesting limit exceeded')
+        elif char in ']}':
+            depth -= 1
     def pairs(items):
         result = {}
         for k, v in items:

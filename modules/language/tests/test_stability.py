@@ -84,6 +84,16 @@ class StabilityTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             strict_json("[" * 5000 + "0" + "]" * 5000)
 
+    def test_json_depth_limit_is_explicit_not_interpreter_dependent(self):
+        strict_json('[' * 128 + '0' + ']' * 128)
+        for depth in (129, 5000):
+            with self.assertRaisesRegex(ValueError, 'JSON nesting limit'):
+                strict_json('[' * depth + '0' + ']' * depth)
+
+    def test_json_brackets_quotes_and_escapes_in_strings_do_not_count_as_depth(self):
+        value = {'text': '[{' * 5000 + '\\"escaped"' + '}]' * 5000}
+        self.assertEqual(strict_json(json.dumps(value)), value)
+
     def test_corrupt_database_degrades_local_and_releases_handle(self):
         self.break_cache()
         original = (self.cache / "cache.sqlite3").read_bytes()
