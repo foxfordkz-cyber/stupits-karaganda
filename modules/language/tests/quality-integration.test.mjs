@@ -24,7 +24,7 @@ test('real language detector works inside the shared synthetic pipeline', async 
   await assert.rejects(runSmoke(out), /must be new/);
 });
 
-test('benchmark CLI preserves hard misses and reports reproducible labeled counts', t => {
+test('benchmark CLI scores unchanged development labels and reports their limited provenance', t => {
   const out = join(directory(t), 'evaluation');
   const python = process.env.LOCQA_PYTHON || (process.platform === 'win32' ? 'python' : 'python3');
   const result = spawnSync(python, [join(moduleDir, 'benchmark/run.py'), '--out', out, '--sizes', ''],
@@ -34,8 +34,8 @@ test('benchmark CLI preserves hard misses and reports reproducible labeled count
   assert.equal(report.cases, 77);
   assert.equal(report.provenance.native_speaker_validated, false);
   assert.equal(report.quality.current.metrics.micro.fp, 0);
-  assert.equal(report.quality.current.metrics.micro.fn, 5);
-  assert.equal(report.quality.current.metrics.micro.tp, 37);
+  assert.equal(report.quality.current.metrics.micro.fn, 0);
+  assert.equal(report.quality.current.metrics.micro.tp, 42);
   assert.equal(report.quality.current.measurement.provider_requests, 0);
   assert.equal(report.quality.current.measurement.llm_cost_per_1000, null);
 });

@@ -5,8 +5,9 @@ from functools import lru_cache
 from .contracts import finding
 from .proposals import spelling_proposal
 from .morphology import diagnose as morphology_diagnostics, CASE_FAMILIES, noun_forms
+from .semantics import diagnostics as semantic_diagnostics, transpositions
 
-RULES_VERSION = "kk-contextual-1.4.1"
+RULES_VERSION = "kk-contextual-1.4.2"
 BRACED_SLOT = r"\{(?P<name>[A-Za-z_][A-Za-z_0-9]*)(?:\s*,\s*(?:number|date|time)(?:\s*,[^{}]*)?)?\}"
 PRINTF_SLOT = r"%(?:\d+\$)?[-+#0 ]*(?:\d+|\*(?:\d+\$)?)?(?:\.(?:\d+|\*(?:\d+\$)?))?[sdif]"
 DYNAMIC_SLOT = re.compile(r"%%|" + BRACED_SLOT + "|" + PRINTF_SLOT)
@@ -114,7 +115,31 @@ def foreign_fragments(record, masked):
     out = []
     for segment in re.finditer(r'[^.!?;:\n]+', masked):
         text = segment[0].strip()
-        if not text or KK_LETTERS.search(text):
+        if not text:
+            continue
+        if KK_LETTERS.search(text):
+            # Contiguous lexical runs, not script counting, inside mixed sentences.
+            inline = re.sub(r'«[^»]*»|“[^”]*”|"[^"\n]*"', lambda m: ' ' * len(m[0]), segment[0])
+            tokens = list(WORD.finditer(inline))
+            for lang, lexicon in LANGUAGE_WORDS.items():
+                run = []
+                for token in tokens + [None]:
+                    if token is not None and token[0].casefold() in lexicon and (
+                            not run or inline[run[-1].end():token.start()].isspace()):
+                        run.append(token)
+                        continue
+                    # A following label/mention construction is ambiguous without metadata.
+                    mentioned = bool(run and re.match(r'\s+(?:үшін|деген|атты)(?!\w)', inline[run[-1].end():], re.I))
+                    if len({t[0].casefold() for t in run}) >= 2 and not mentioned:
+                        start, end = segment.start() + run[0].start(), segment.start() + run[-1].end()
+                        signals = {lang: sorted({t[0].casefold() for t in run})}
+                        hints = language_hints(signals, lang)
+                        if hints:
+                            out.append(finding(record, 'wrong_language',
+                                f'Внутри смешанного предложения фрагмент «{record["target"][start:end]}» '
+                                f'[{start}:{end}] содержит несколько соседних лексических признаков {lang}.',
+                                fragment_suggestion(hints), 0.75, 'high'))
+                    run = [token] if token is not None and token[0].casefold() in lexicon else []
             continue
         words = [word[0].casefold() for word in WORD.finditer(text)]
         signals = {lang: sorted(set(words) & lexicon) for lang, lexicon in LANGUAGE_WORDS.items()}
@@ -187,12 +212,16 @@ def analyze_record(record, glossary, *, proposals=None):
             f'Проверить назначение невидимых символов внутри слова и использовать «{corrected}», если они не предусмотрены интерфейсом.',
             0.85, 'low'))
         # No whole-string candidate: format controls require deliberate human review.
-    # Exact, contextual calque: possession of a choice. Never infer "machine generated" as a fact.
-    m = re.fullmatch(r"\s*Сіз таңдауды жасадыңыз[.!]?\s*", target, re.I)
-    if m and re.fullmatch(r"\s*Вы сделали выбор[.!]?\s*", record["source"], re.I):
-        out.append(finding(record, "machine_translation_suspect",
-            'Оборот «таңдауды жасадыңыз» буквально воспроизводит «сделали выбор»; возможна более естественная глагольная конструкция. Происхождение перевода не установлено.',
-            'Сіз таңдау жасадыңыз.', 0.65, "low"))
+    out.extend(semantic_diagnostics(record, masked))
+    for m, replacement in transpositions(record, masked):
+        out.append(finding(record, 'orthography',
+            f'«{m[0]}» [{m.start()}:{m.end()}]: перестановка двух соседних букв даёт '
+            f'«{replacement}», соответствующее явно указанному понятию в исходнике.',
+            f'Проверить написание «{replacement}» вместо «{m[0]}».', 0.8, 'low'))
+        if proposals is not None:
+            candidate = spelling_proposal(record, len(out) - 1, m.start(), m.end(), replacement)
+            if candidate:
+                proposals.append(candidate)
     visible = protected_text(record, mask_slots=False)
     for token in DYNAMIC_SLOT.finditer(visible):
         if token[0] == '%%':
