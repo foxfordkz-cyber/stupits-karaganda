@@ -1,5 +1,7 @@
 // Shared by the self-contained browser report and the Node test runner.
 // Drafts are working choices, never attestations of human review.
+import { validatePrecision } from './precision.mjs';
+
 const DECISIONS = new Set(['accepted', 'edited', 'rejected']);
 const HASH = /^[a-f0-9]{64}$/;
 const FINDING_FIELDS = ['key', 'issue_type', 'severity', 'source', 'target', 'evidence', 'suggestion', 'confidence', 'reviewed_by_human'];
@@ -147,19 +149,24 @@ export async function makeDraft(card, decision, text, note = '', author = '') {
 }
 
 /** Preserve stale drafts as well as current ones when exporting the workspace. */
-export function createWorkspace(model, drafts, reviews = { schema_version: '1.0', target_locale: model.bundle.target_locale, decisions: [] }) {
-  return {
+export function createWorkspace(model, drafts, reviews = { schema_version: '1.0', target_locale: model.bundle.target_locale, decisions: [] }, precisionSample = null) {
+  const workspace = {
     kind: 'qazaq-loc-qa-workspace',
-    version: 1,
+    version: precisionSample === null ? 1 : 2,
     target_locale: model.bundle.target_locale,
     drafts: structuredClone(drafts),
     imported_reviews: structuredClone(reviews)
   };
+  if (precisionSample !== null) workspace.imported_precision = structuredClone(precisionSample);
+  return workspace;
 }
 
 export async function restoreWorkspace(workspace, model) {
-  exactObject(workspace, ['kind', 'version', 'target_locale', 'drafts', 'imported_reviews'], 'workspace');
-  insist(workspace.kind === 'qazaq-loc-qa-workspace' && workspace.version === 1, 'Неизвестный формат рабочего файла');
+  const fields = ['kind', 'version', 'target_locale', 'drafts', 'imported_reviews'];
+  if (workspace?.version === 2) fields.push('imported_precision');
+  exactObject(workspace, fields, 'workspace');
+  insist(workspace.kind === 'qazaq-loc-qa-workspace' && [1, 2].includes(workspace.version), 'Неизвестный формат рабочего файла');
+  if (workspace.version === 2) insist(workspace.imported_precision !== null && typeof workspace.imported_precision === 'object' && !Array.isArray(workspace.imported_precision), 'workspace: imported_precision должен быть объектом анкеты');
   insist(validLocale(workspace.target_locale), 'workspace: неверная локаль');
   insist(workspace.target_locale === model.bundle.target_locale, 'Локаль рабочего файла не совпадает с bundle.');
   insist(Array.isArray(workspace.drafts), 'workspace: drafts должен быть массивом');
@@ -197,5 +204,36 @@ export async function restoreWorkspace(workspace, model) {
     }
   }
   const reviews = await validateReviews(workspace.imported_reviews, model);
-  return { drafts, staleDrafts, reviews };
+  let precision = null, stalePrecision = null;
+  if (workspace.version === 2) {
+    try { precision = await validatePrecision(workspace.imported_precision, model.report); }
+    catch (error) { stalePrecision = { sample: workspace.imported_precision, reason: error.message }; }
+  }
+  return { drafts, staleDrafts, reviews, precision, stalePrecision };
+}
+
+/** A string may have several issue cards, but cannot adopt conflicting versions. */
+export function draftConflicts(drafts) {
+  const entries = new Map();
+  for (const draft of drafts instanceof Map ? drafts.values() : drafts) {
+    if (!draft.entry_id || !['accepted', 'edited'].includes(draft.decision) || typeof draft.proposed_text !== 'string') continue;
+    if (!entries.has(draft.entry_id)) entries.set(draft.entry_id, { entry_id: draft.entry_id, key: draft.key, drafts: [] });
+    entries.get(draft.entry_id).drafts.push(draft);
+  }
+  return [...entries.values()].filter(group => new Set(group.drafts.map(draft => draft.proposed_text)).size > 1);
+}
+
+/** Navigation follows the report order even after a status filter hides selection. */
+export function adjacentCardId(cards, visibleCards, selectedId, direction) {
+  insist(direction === 1 || direction === -1, 'Направление перехода должно быть 1 или -1');
+  const visibleIds = new Set(visibleCards.map(card => card.id));
+  const current = cards.findIndex(card => card.id === selectedId);
+  if (current < 0) {
+    const ordered = direction === 1 ? cards : [...cards].reverse();
+    return ordered.find(card => visibleIds.has(card.id))?.id ?? null;
+  }
+  for (let index = current + direction; index >= 0 && index < cards.length; index += direction) {
+    if (visibleIds.has(cards[index].id)) return cards[index].id;
+  }
+  return null;
 }

@@ -1,5 +1,5 @@
 // Fixture playback only: does not run a detector or review translations.
-import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
 import { dirname, resolve, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { execFileSync } from 'node:child_process';
@@ -7,11 +7,12 @@ import { args, main, readJson } from '../../src/io.mjs';
 import { renderHtml } from './render.mjs';
 
 await main(async () => {
-  const a = args({ out: { type: 'string', default: 'outputs/tony-demo' } });
-  const out = resolve(a.out);
-  await mkdir(dirname(out), { recursive: true });
-  // A new directory prevents accidental replacement of an earlier session.
-  await mkdir(out);
+  const a = args({ out: { type: 'string' } });
+  const requested = resolve(a.out ?? 'outputs/tony-demo');
+  await mkdir(dirname(requested), { recursive: true });
+  // Repeated default launches get fresh directories, preserving earlier sessions.
+  // Explicit destinations stay strict: never silently choose a different directory.
+  const out = a.out ? (await mkdir(requested), requested) : await mkdtemp(requested + '-');
   const fixture = fileURLToPath(new URL('../../fixtures/synthetic/', import.meta.url));
   const bundlePath = join(out, 'bundle.sample.json');
   execFileSync(process.execPath, [join(fixture, 'adapters/adapter.mjs'), 'normalize', '--source', join(fixture, 'source.arb'), '--target', join(fixture, 'target.arb'), '--out', bundlePath], { stdio: 'pipe' });

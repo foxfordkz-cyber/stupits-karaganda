@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import { Script } from 'node:vm';
 import { hashText } from '../../../src/contracts.mjs';
+import { sampleForReview } from '../../../src/evaluation.mjs';
 import { renderHtml } from '../render.mjs';
 import { createModel, createWorkspace, makeDraft, restoreWorkspace } from '../model.mjs';
 
@@ -157,4 +158,105 @@ test('CLI also protects optional workspace and review inputs from overwrite', as
   const workspaceResult = cli(paths, workspacePath, ['--workspace', workspacePath]);
   assert.notEqual(workspaceResult.status, 0);
   assert.equal(await readFile(workspacePath, 'utf8'), JSON.stringify(workspace));
+});
+
+test('renderer rejects simultaneous workspace and reviews to prevent implicit journal replacement', async t => {
+  const reviews = { schema_version: '1.0', target_locale: 'kk', decisions: [] };
+  const workspace = createWorkspace(createModel(bundle, report), [], reviews);
+  await assert.rejects(() => renderHtml(bundle, report, { workspace, reviews }), /workspace|reviews/i);
+  const paths = await temporary(t);
+  const workspacePath = join(paths.directory, 'workspace.json');
+  const reviewsPath = join(paths.directory, 'reviews.json');
+  await writeFile(workspacePath, JSON.stringify(workspace));
+  await writeFile(reviewsPath, JSON.stringify(reviews));
+  const output = join(paths.directory, 'conflicting.html');
+  const result = cli(paths, output, ['--workspace', workspacePath, '--reviews', reviewsPath]);
+  assert.notEqual(result.status, 0);
+  await assert.rejects(() => readFile(output), { code: 'ENOENT' });
+});
+
+test('precision sample embeds in standalone HTML unchanged and cannot be overwritten through CLI', async t => {
+  const precisionSample = sampleForReview(report, { size: 2, seed: 'report-render-synthetic' });
+  const before = JSON.stringify(precisionSample);
+  const html = await renderHtml(bundle, report, { precisionSample });
+  const script = /<script\b[^>]*type=["']application\/json["'][^>]*>([\s\S]*?)<\/script>/i.exec(html);
+  assert.ok(script);
+  const payload = JSON.parse(script[1]);
+  assert.deepEqual(payload.precisionSample, precisionSample);
+  assert.equal(JSON.stringify(precisionSample), before);
+  const paths = await temporary(t);
+  const samplePath = join(paths.directory, 'precision.json');
+  await writeFile(samplePath, before);
+  const output = join(paths.directory, 'precision.html');
+  const result = cli(paths, output, ['--precision-sample', samplePath]);
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(await readFile(output, 'utf8'), /human_precision_sample/);
+  assert.notEqual(cli(paths, samplePath, ['--precision-sample', samplePath]).status, 0);
+  assert.equal(await readFile(samplePath, 'utf8'), before);
+});
+
+test('renderer rejects stale precision attestations instead of displaying confirmed counts', async t => {
+  const precisionSample = sampleForReview(report, { size: 2, seed: 'report-render-stale-synthetic' });
+  precisionSample.report_sha256 = '0'.repeat(64);
+  await assert.rejects(() => renderHtml(bundle, report, { precisionSample }));
+  const paths = await temporary(t);
+  const samplePath = join(paths.directory, 'stale-precision.json');
+  await writeFile(samplePath, JSON.stringify(precisionSample));
+  const output = join(paths.directory, 'stale.html');
+  assert.notEqual(cli(paths, output, ['--precision-sample', samplePath]).status, 0);
+  await assert.rejects(() => readFile(output), { code: 'ENOENT' });
+});
+
+test('explicit falsey optional API inputs are rejected rather than treated as absent', async () => {
+  for (const option of ['workspace', 'reviews', 'precisionSample']) {
+    for (const invalid of [null, false, 0, '']) {
+      await assert.rejects(() => renderHtml(bundle, report, { [option]: invalid }),
+        `${option}=${JSON.stringify(invalid)} must not be silently ignored`);
+    }
+  }
+});
+
+test('CLI rejects supplied null workspace, reviews and precision files without creating output', async t => {
+  const paths = await temporary(t);
+  const nullPath = join(paths.directory, 'null.json');
+  await writeFile(nullPath, 'null\n');
+  for (const flag of ['--workspace', '--reviews', '--precision-sample']) {
+    const output = join(paths.directory, `${flag.slice(2)}-null.html`);
+    const result = cli(paths, output, [flag, nullPath]);
+    assert.notEqual(result.status, 0, `${flag} must reject a supplied null document`);
+    await assert.rejects(() => readFile(output), { code: 'ENOENT' });
+  }
+  assert.equal(await readFile(nullPath, 'utf8'), 'null\n');
+});
+
+test('demo defaults to a fresh output directory on each run and protects explicit existing output', async t => {
+  const paths = await temporary(t);
+  const script = join(root, 'modules', 'report', 'demo.mjs');
+  const run = args => spawnSync(process.execPath, [script, ...args], {
+    cwd: paths.directory, encoding: 'utf8', timeout: 15000,
+  });
+  const outputs = [];
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const result = run([]);
+    assert.equal(result.status, 0, result.stderr);
+    const match = /Synthetic review UI: ([^\r\n]+)/.exec(result.stdout);
+    assert.ok(match, 'demo must print the concrete report path');
+    outputs.push(match[1]);
+    const html = await readFile(match[1], 'utf8');
+    const dataScript = /<script\b[^>]*type=["']application\/json["'][^>]*>([\s\S]*?)<\/script>/i.exec(html);
+    assert.ok(dataScript);
+    const data = JSON.parse(dataScript[1]);
+    assert.equal(data.report.length, 11);
+    assert.equal(data.synthetic, true);
+    assert.ok(data.report.every(finding => finding.reviewed_by_human === false));
+  }
+  assert.notEqual(outputs[0], outputs[1]);
+  const explicit = join(paths.directory, 'existing-demo');
+  await mkdir(explicit);
+  const marker = join(explicit, 'keep.txt');
+  await writeFile(marker, 'Preserve this previous output.');
+  const refused = run(['--out', explicit]);
+  assert.notEqual(refused.status, 0);
+  assert.equal(await readFile(marker, 'utf8'), 'Preserve this previous output.');
+  await assert.rejects(() => readFile(join(explicit, 'report.html')), { code: 'ENOENT' });
 });

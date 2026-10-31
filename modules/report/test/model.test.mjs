@@ -3,8 +3,10 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { assertContract, hashText } from '../../../src/contracts.mjs';
 import { inspectArb } from '../../../src/arb-audit.mjs';
+import { sampleForReview } from '../../../src/evaluation.mjs';
+import { scorePrecisionReview } from '../../../src/human-evaluation.mjs';
 import {
-  createModel, sha256, makeDraft, createWorkspace, restoreWorkspace, validateReviews,
+  createModel, sha256, makeDraft, createWorkspace, restoreWorkspace, validateReviews, draftConflicts, adjacentCardId,
 } from '../model.mjs';
 
 const fixtureBase = new URL('../../../fixtures/synthetic/', import.meta.url);
@@ -244,4 +246,98 @@ test('review import rejects malformed or tampered attestations and foreign local
   await assert.rejects(() => validateReviews(duplicate, current));
   const foreign = mockReviews(current.cards[1]); foreign.target_locale = 'uz';
   await assert.rejects(() => validateReviews(foreign, current));
+});
+
+test('precision-bearing v2 workspace restores the exact sample while legacy v1 remains readable', async () => {
+  const current = model();
+  const draft = await makeDraft(current.cards[0], 'accepted');
+  const sample = sampleForReview(current.report, { size: 3, seed: 'workspace-precision-synthetic' });
+  // Only a mock input attestation; the workspace itself never sets human-review flags.
+  Object.assign(sample.rows[0], { reviewed: true, correct: true, reviewer: 'SYNTHETIC_TEST_ONLY', reviewed_at: '2026-10-31T12:00:00Z' });
+  const workspace = createWorkspace(current, [draft], undefined, sample);
+  assert.equal(workspace.version, 2);
+  assert.deepEqual(workspace.imported_precision, sample);
+  const restored = await restoreWorkspace(JSON.parse(JSON.stringify(workspace)), current);
+  assert.deepEqual(restored.drafts, [draft]);
+  assert.deepEqual(restored.precision, scorePrecisionReview(sample, current.report));
+  assert.equal(restored.stalePrecision, null);
+  const legacy = createWorkspace(current, [draft]);
+  assert.equal(legacy.version, 1);
+  assert.equal(Object.hasOwn(legacy, 'imported_precision'), false);
+  const legacyRestored = await restoreWorkspace(legacy, current);
+  assert.equal(legacyRestored.precision, null);
+  assert.equal(legacyRestored.stalePrecision, null);
+});
+
+test('a stale attached precision sample never blocks valid drafts or counts old confirmations', async () => {
+  const before = model();
+  const draft = await makeDraft(before.cards[0], 'accepted', undefined, 'Still applicable draft');
+  const sample = sampleForReview(before.report, { size: 3, seed: 'stale-workspace-precision-synthetic' });
+  Object.assign(sample.rows[0], { reviewed: true, correct: true, reviewer: 'SYNTHETIC_TEST_ONLY', reviewed_at: '2026-10-31T12:00:00Z' });
+  const saved = createWorkspace(before, [draft], undefined, sample);
+  const changedReport = structuredClone(before.report); changedReport[1].suggestion += ' newer synthetic suggestion';
+  const after = createModel(before.bundle, changedReport);
+  const restored = await restoreWorkspace(saved, after);
+  assert.deepEqual(restored.drafts, [draft]);
+  assert.equal(restored.precision, null);
+  assert.deepEqual(restored.stalePrecision.sample, sample);
+  assert.ok(restored.stalePrecision.reason);
+  const savedAgain = createWorkspace(after, restored.drafts, saved.imported_reviews, restored.stalePrecision.sample);
+  const reopened = await restoreWorkspace(JSON.parse(JSON.stringify(savedAgain)), after);
+  assert.deepEqual(reopened.drafts, [draft]);
+  assert.deepEqual(reopened.stalePrecision.sample, sample);
+  assert.equal(reopened.precision, null);
+});
+
+test('malformed attached precision objects are retained without endorsement; invalid v2 structure is rejected', async () => {
+  const current = model();
+  const draft = await makeDraft(current.cards[0], 'accepted');
+  const workspace = createWorkspace(current, [draft], undefined, { evaluation_scope: 'unknown', rows: [] });
+  const restored = await restoreWorkspace(workspace, current);
+  assert.deepEqual(restored.drafts, [draft]);
+  assert.equal(restored.precision, null);
+  assert.deepEqual(restored.stalePrecision.sample, workspace.imported_precision);
+  for (const attachment of [null, [], 'invalid']) {
+    const bad = structuredClone(workspace); bad.imported_precision = attachment;
+    await assert.rejects(() => restoreWorkspace(bad, current));
+  }
+  const missing = structuredClone(workspace); delete missing.imported_precision;
+  await assert.rejects(() => restoreWorkspace(missing, current));
+});
+
+test('draft conflicts identify distinct proposed translations per entry without merging findings', async () => {
+  const current = model();
+  const base = current.report[1];
+  const second = { ...base, issue_type: 'orthography', evidence: 'Another synthetic issue for the same string' };
+  const paired = createModel(current.bundle, [base, second]);
+  const accepted = await makeDraft(paired.cards[0], 'accepted');
+  const same = await makeDraft(paired.cards[1], 'edited', accepted.proposed_text);
+  assert.deepEqual(draftConflicts([accepted, same]), []);
+  const edited = await makeDraft(paired.cards[1], 'edited', 'Different synthetic text');
+  const conflicts = draftConflicts([accepted, edited]);
+  assert.equal(conflicts.length, 1);
+  assert.equal(conflicts[0].entry_id, paired.cards[0].entry.entry_id);
+  assert.equal(conflicts[0].key, base.key);
+  assert.deepEqual(conflicts[0].drafts, [accepted, edited]);
+  assert.deepEqual(draftConflicts(new Map([[accepted.card_id, accepted], [edited.card_id, edited]])), conflicts);
+  const rejected = await makeDraft(paired.cards[1], 'rejected');
+  assert.deepEqual(draftConflicts([accepted, rejected]), []);
+  const empty = await makeDraft(paired.cards[1], 'edited', '');
+  assert.equal(draftConflicts([accepted, empty]).length, 1, 'intentional empty translation is a real conflicting proposal');
+});
+
+test('batch navigation follows full order when the reviewed card disappears from filtered queue', () => {
+  const cards = ['a', 'b', 'c', 'd', 'e'].map(id => ({ id }));
+  const remaining = [cards[1], cards[2], cards[4]];
+  assert.equal(adjacentCardId(cards, remaining, 'a', 1), 'b');
+  assert.equal(adjacentCardId(cards, remaining, 'b', 1), 'c');
+  assert.equal(adjacentCardId(cards, remaining, 'c', 1), 'e');
+  assert.equal(adjacentCardId(cards, remaining, 'e', -1), 'c');
+  assert.equal(adjacentCardId(cards, remaining, 'd', -1), 'c');
+  assert.equal(adjacentCardId(cards, remaining, 'd', 1), 'e');
+  assert.equal(adjacentCardId(cards, remaining, 'e', 1), null);
+  assert.equal(adjacentCardId(cards, remaining, 'a', -1), null);
+  assert.equal(adjacentCardId(cards, remaining, 'missing', 1), 'b');
+  assert.equal(adjacentCardId(cards, remaining, 'missing', -1), 'e');
+  assert.equal(adjacentCardId(cards, [], 'c', 1), null);
 });
