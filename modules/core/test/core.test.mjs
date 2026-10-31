@@ -188,6 +188,36 @@ test('printf positions, formatting styles and markup balance are checked', () =>
   assert.deepEqual(check({ greeting: '%2$d %1$s' }, { greeting: '%1$s %2$d' }).report, []);
 });
 
+test('repeated formatted arguments cannot disappear within an ICU branch', () => {
+  for (const format of ['number', 'date, short', 'time, short']) {
+    const source = `{state, select, ready{Value {n, ${format}} / {n, ${format}}} other{Wait}}`;
+    const target = `{state, select, ready{Мән {n, ${format}}} other{Күтіңіз}}`;
+    assert.ok(types(check({ greeting: source }, { greeting: target })).includes('placeholder_mismatch'));
+    assert.throws(() => exported(source, source, target), /technical mismatch/);
+    const valid = source.replace('Value', 'Мән').replace('Wait', 'Күтіңіз');
+    assert.ok(!types(check({ greeting: source }, { greeting: valid })).includes('placeholder_mismatch'));
+  }
+});
+
+test('markup and printf tokens cannot move between nested ICU branches', () => {
+  for (const [sourceWin, sourceOther, targetWin, targetOther] of [
+    ['<b>Win</b>', 'Lose', 'Win', '<b>Lose</b>'],
+    ['Win %s', 'Lose', 'Win', 'Lose %s'],
+    ['Win', 'Lose %s', 'Win %s', 'Lose'],
+  ]) {
+    const source = `{mode, select, game{{state, select, win{${sourceWin}} other{${sourceOther}}}} other{Wait}}`;
+    const target = `{mode, select, game{{state, select, win{${targetWin}} other{${targetOther}}}} other{Wait}}`;
+    const result = check({ greeting: source }, { greeting: target });
+    assert.ok(types(result).includes('placeholder_mismatch'));
+    assert.match(result.report.find(f => f.issue_type === 'placeholder_mismatch').evidence, /message\/mode\/game\/state/);
+    assert.throws(() => exported(source, source, target), /technical mismatch/);
+  }
+  const source = "<b>{state, select, win{'{literal}' %1$s} other{Lose}}</b>";
+  const target = "<b>{state, select, win{'{literal}' %1$s Жеңіс} other{Жеңіліс}}</b>";
+  assert.deepEqual(types(check({ greeting: source }, { greeting: target })), []);
+  assert.doesNotThrow(() => exported(source, source, target));
+});
+
 test('invalid source ICU is separated from target findings', () => {
   const result = check({ greeting: '{broken' }, { greeting: 'Text' });
   assert.equal(result.report.length, 0);

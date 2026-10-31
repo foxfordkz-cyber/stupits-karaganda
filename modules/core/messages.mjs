@@ -27,8 +27,8 @@ export function inspectMessage(text, locale) {
   // Relax only the mandatory-other check so a malformed plural can be classified
   // without guessing from a regex. The recursive parser still validates syntax.
   const ast = parse(text, { ignoreTag: true, requiresOtherClause: false, captureLocation: true });
-  const pluralErrors = [], placeholderErrors = [], names = [], controls = [];
-  function visit(nodes) {
+  const pluralErrors = [], placeholderErrors = [], names = [], controls = [], scopeSignatures = new WeakMap();
+  function visit(nodes, path = 'message') {
     for (const node of nodes) {
       if ([TYPE.argument, TYPE.number, TYPE.date, TYPE.time, TYPE.select, TYPE.plural].includes(node.type)) names.push(node.value);
       if (control(node)) {
@@ -43,21 +43,28 @@ export function inspectMessage(text, locale) {
             issues.push(`${node.value}: category ${selector} is unused for ${locale} ${node.pluralType}`);
           }
         }
-        for (const option of Object.values(node.options)) visit(option.value);
+        for (const [key, option] of Object.entries(node.options)) visit(option.value, `${path}/${node.value}/${key}`);
       }
+    }
+    // Raw spans retain ICU quoting. Rebuilding decoded literals would turn
+    // escaped braces into arguments. Each branch needs its own token inventory:
+    // a matching global inventory can hide tags/printf moved to another branch.
+    const raw = nodes.length ? text.slice(nodes[0].location.start.offset, nodes.at(-1).location.end.offset) : '';
+    try { scopeSignatures.set(nodes, technicalSignature(raw)); } catch (error) {
+      if (!pluralErrors.length && !placeholderErrors.length) placeholderErrors.push(`${path}: ${error.message}`);
     }
   }
   visit(ast);
-  let signature = null;
-  try { signature = technicalSignature(text); } catch (error) {
-    if (!pluralErrors.length && !placeholderErrors.length) placeholderErrors.push(error.message);
-  }
-  return { ast, signature, names: unique(names), controls, pluralErrors, placeholderErrors };
+  return { ast, signature: scopeSignatures.get(ast) ?? null, scopeSignatures, names: unique(names), controls, pluralErrors, placeholderErrors };
 }
 
 // Compare each select/plural scope rather than just a global union. A plural
 // moved out of one select branch must not be masked by another identical plural.
-function compareScopes(source, target, path, pluralErrors, placeholderErrors) {
+function compareScopes(source, target, path, pluralErrors, placeholderErrors, sourceSignatures, targetSignatures) {
+  const sourceSignature = sourceSignatures.get(source), targetSignature = targetSignatures.get(target);
+  if (sourceSignature && targetSignature) for (const field of ['printf', 'tags']) {
+    if (!equal(sourceSignature[field], targetSignature[field])) placeholderErrors.push(`${path}: ${field}: expected ${JSON.stringify(sourceSignature[field])}, got ${JSON.stringify(targetSignature[field])}`);
+  }
   for (const name of unique(source.filter(n => n.type === TYPE.argument).map(n => n.value))) {
     const expected = source.filter(n => n.type === TYPE.argument && n.value === name).length;
     const actual = target.filter(n => n.type === TYPE.argument && n.value === name).length;
@@ -70,8 +77,11 @@ function compareScopes(source, target, path, pluralErrors, placeholderErrors) {
     if (value && typeof value === 'object') return Object.fromEntries(Object.keys(value).filter(k => k !== 'location').sort().map(k => [k, style(value[k])]));
     return value;
   }
+  const formatted = target.filter(n => [TYPE.number, TYPE.date, TYPE.time].includes(n.type)), usedFormatted = new Set();
   for (const node of source.filter(n => [TYPE.number, TYPE.date, TYPE.time].includes(n.type))) {
-    if (!target.some(n => n.type === node.type && n.value === node.value && equal(style(n.style), style(node.style)))) placeholderErrors.push(`${path}: changed ${TYPE[node.type]} style for ${node.value}`);
+    const i = formatted.findIndex((n, index) => !usedFormatted.has(index) && n.type === node.type && n.value === node.value && equal(style(n.style), style(node.style)));
+    if (i < 0) placeholderErrors.push(`${path}: missing occurrence or changed ${TYPE[node.type]} style for ${node.value}`);
+    else usedFormatted.add(i);
   }
   const a = source.filter(control), b = target.filter(control), used = new Set();
   for (const node of a) {
@@ -86,7 +96,7 @@ function compareScopes(source, target, path, pluralErrors, placeholderErrors) {
       const argumentsIn = nodes => unique(nodes.filter(n => [TYPE.argument, TYPE.number, TYPE.date, TYPE.time].includes(n.type)).map(n => n.value));
       const expected = argumentsIn(branch.value), actual = argumentsIn(match.value);
       if (expected.some(name => !actual.includes(name))) placeholderErrors.push(`${path}/${node.value}/${key}: branch argument missing`);
-      compareScopes(branch.value, match.value, `${path}/${node.value}/${key}`, pluralErrors, placeholderErrors);
+      compareScopes(branch.value, match.value, `${path}/${node.value}/${key}`, pluralErrors, placeholderErrors, sourceSignatures, targetSignatures);
     };
     for (const [key, branch] of Object.entries(node.options)) {
       // An omitted source plural category falls back to target other. Literal
@@ -103,9 +113,8 @@ function compareScopes(source, target, path, pluralErrors, placeholderErrors) {
 export function compareMessages(source, target) {
   const pluralErrors = [...target.pluralErrors], placeholderErrors = [...target.placeholderErrors];
   if (!equal(source.names, target.names)) placeholderErrors.push(`ICU arguments: expected ${JSON.stringify(source.names)}, got ${JSON.stringify(target.names)}`);
-  compareScopes(source.ast, target.ast, 'message', pluralErrors, placeholderErrors);
+  compareScopes(source.ast, target.ast, 'message', pluralErrors, placeholderErrors, source.scopeSignatures, target.scopeSignatures);
   if (source.signature && target.signature) {
-    for (const field of ['printf', 'tags']) if (!equal(source.signature[field], target.signature[field])) placeholderErrors.push(`${field}: expected ${JSON.stringify(source.signature[field])}, got ${JSON.stringify(target.signature[field])}`);
     for (const requirement of source.signature.icuRequirements) {
       const kind = JSON.parse(requirement)[0];
       if (!['plural', 'selectordinal', 'select'].includes(kind) && !target.signature.icuRequirements.includes(requirement)) placeholderErrors.push('Changed formatted argument: ' + requirement);
