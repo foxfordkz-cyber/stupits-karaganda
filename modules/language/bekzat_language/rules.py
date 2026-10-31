@@ -4,8 +4,9 @@ import unicodedata
 from functools import lru_cache
 from .contracts import finding
 from .proposals import spelling_proposal
+from .morphology import diagnose as morphology_diagnostics, CASE_FAMILIES
 
-RULES_VERSION = "kk-contextual-1.3.1"
+RULES_VERSION = "kk-contextual-1.4.0"
 BRACED_SLOT = r"\{(?P<name>[A-Za-z_][A-Za-z_0-9]*)(?:\s*,\s*(?:number|date|time)(?:\s*,[^{}]*)?)?\}"
 PRINTF_SLOT = r"%(?:\d+\$)?[-+#0 ]*(?:\d+|\*(?:\d+\$)?)?(?:\.(?:\d+|\*(?:\d+\$)?))?[sdif]"
 DYNAMIC_SLOT = re.compile(r"%%|" + BRACED_SLOT + "|" + PRINTF_SLOT)
@@ -41,6 +42,8 @@ LEXICAL_HINTS = {"пожалуйста": "өтінеміз", "нажмите": "
     "tanlang": "таңдаңыз", "xarid": "сатып алу", "muvaffaqiyatli": "сәтті", "uchun": "үшін",
     "sizning": "сіздің", "emas": "емес", "mablag": "қаражат", "yetarli": "жеткілікті"}
 SUFFIXES = "лары лері дары дері тары тері ның нің дың дің тың тің нан нен дан ден тан тен ға ге қа ке да де та те ны ні ды ді ты ті лар лер дар дер тар тер мен бен пен ым ім ың ің ы і".split()
+SUFFIXES += [plural + case for plural in ('лар', 'лер', 'дар', 'дер', 'тар', 'тер')
+             for variants in CASE_FAMILIES.values() for case in variants]
 SUFFIX_AFTER = re.compile(r"(?P<join>[-‐‑–'’]?)(?P<suffix>" +
                     "|".join(sorted(SUFFIXES, key=len, reverse=True)) + r")(?!\w)", re.I)
 
@@ -127,6 +130,7 @@ def analyze_record(record, glossary, *, proposals=None):
     out = []
     if meta.get("language_neutral") is True:
         return out
+    out.extend(morphology_diagnostics(record, masked))
     draft = glossary["status"] == "draft"
     for entry in glossary["entries"]:
         if not applicable(entry, record):
