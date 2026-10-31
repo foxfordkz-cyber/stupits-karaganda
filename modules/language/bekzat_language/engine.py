@@ -60,11 +60,12 @@ def analyze(records, glossary, *, cache_dir, provider=None, max_requests=0, max_
     except (TypeError, ValueError, UnicodeError, RecursionError):
         records_hash = None
     contexts, consistency = term_contexts(good, glossary)
-    metrics = {"started_at_utc": started_at, "engine_version": "1.3.1", "rules_version": RULES_VERSION,
+    glossary_hash = digest(glossary)
+    metrics = {"started_at_utc": started_at, "engine_version": "1.4.0", "rules_version": RULES_VERSION,
         "input_records": len(records), "valid_records": len(good),
         "quarantined_records": len(diagnostics), "records_hash": records_hash,
         "records_hash_scope": "complete_input" if records_hash else "unavailable_invalid_input",
-        "glossary_hash": digest(glossary), "glossary_status": glossary["status"],
+        "glossary_hash": glossary_hash, "glossary_status": glossary["status"],
         "mode": "model_and_local" if provider else "local_only",
         "model_records_completed": 0, "model_records_skipped": 0, "provider_requests": 0,
         "local_cache_hits": 0, "local_cache_misses": 0, "model_cache_hits": 0,
@@ -95,7 +96,8 @@ def analyze(records, glossary, *, cache_dir, provider=None, max_requests=0, max_
                 record_started = time.perf_counter()
                 event = {"input_index": input_indices[n], "identity_hash": digest(identity(record)),
                          "provider_requests": 0, "input_tokens": 0, "output_tokens": 0, "cost_usd": 0.0}
-                local_key = digest({"kind": "local", "version": RULES_VERSION, "record": record, "glossary": glossary})
+                local_key = digest({"kind": "local-v2", "version": RULES_VERSION,
+                                    "record": record, "glossary_hash": glossary_hash})
                 local = cache.get(local_key)
                 if local is not None:
                     try:
@@ -114,7 +116,7 @@ def analyze(records, glossary, *, cache_dir, provider=None, max_requests=0, max_
                     local_proposals = []
                     local = {'findings': analyze_record(record, glossary, proposals=local_proposals),
                              'proposals': local_proposals}
-                    cache.put(local_key, local)
+                    cache.put(local_key, local, durable=False)
                     metrics["local_cache_misses"] += 1
                     event["local_cache"] = "miss"
                 else:
@@ -155,7 +157,12 @@ def analyze(records, glossary, *, cache_dir, provider=None, max_requests=0, max_
                         fits = (metrics["provider_requests"] < max_requests and
                             metrics["reserved_tokens"] + reserve_tokens <= max_tokens and
                             metrics["cost_usd_reserved"] + reserve_cost <= max_cost_usd + 1e-12)
-                        if not cache.available or provider_stopped or not fits:
+                        request_too_large = len(canonical(request).encode('utf-8')) > 2_000_000
+                        if request_too_large:
+                            metrics['model_records_skipped'] += 1
+                            event['model_status'] = 'request_too_large'
+                            diagnostics.append({'input_index': input_indices[n], 'codes': ['provider_request_too_large']})
+                        elif not cache.available or provider_stopped or not fits:
                             metrics["model_records_skipped"] += 1
                             event["model_status"] = ("cache_unavailable" if not cache.available else
                                 "stopped_after_failure" if provider_stopped else "budget_exhausted")
@@ -188,8 +195,17 @@ def analyze(records, glossary, *, cache_dir, provider=None, max_requests=0, max_
                                 if not usage_known:
                                     metrics["cost_status"] = "unknown_after_provider_failure"
                                     event["cost_usd"] = None
+                                safe_codes = {'provider_timeout', 'provider_response_too_large',
+                                    'provider_exit_nonzero', 'provider_output_incomplete',
+                                    'provider_exceeded_reserved_budget', 'provider_span_not_in_target',
+                                    'provider_issue_fields', 'provider_response_fields', 'provider_usage_fields',
+                                    'provider_usage_values', 'provider_empty_evidence', 'provider_issues_array',
+                                    'provider_inconsistency_without_context', 'finding_enum', 'finding_confidence',
+                                    'finding_invalid_unicode'}
+                                # Never persist arbitrary provider stderr/exception text.
+                                reason = str(exc) if type(exc) is ValueError and str(exc) in safe_codes else 'provider_execution_or_protocol_error'
                                 diagnostics.append({"input_index": input_indices[n],
-                                    "codes": ["provider_failure"], "error_class": type(exc).__name__})
+                                    "codes": ["provider_failure"], "reason": reason, "error_class": type(exc).__name__})
                                 event["model_status"] = "failed"
                     if model_findings is not None:
                         candidates.extend((f, "model") for f in model_findings)
@@ -216,6 +232,7 @@ def analyze(records, glossary, *, cache_dir, provider=None, max_requests=0, max_
                 if logfile:
                     logfile.write(canonical(event) + "\n")
                     logfile.flush()
+            cache.flush()
             metrics["persistent_cache_available"] = cache.available
             if cache.error_code:
                 diagnostics.append({"input_index": None, "codes": [cache.error_code], "scope": "run"})

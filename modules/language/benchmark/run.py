@@ -76,6 +76,8 @@ def main(argv=None):
     p = argparse.ArgumentParser()
     p.add_argument('--engine', type=Path, default=MODULE)
     p.add_argument('--baseline', type=Path)
+    p.add_argument('--historical', type=Path)
+    p.add_argument('--dataset', choices=('development', 'holdout'), default='development')
     p.add_argument('--out', type=Path, required=True)
     p.add_argument('--sizes', default='100,1000,5600', help='synthetic scalability sizes, empty disables')
     args = p.parse_args(argv)
@@ -85,7 +87,11 @@ def main(argv=None):
     out = private_path(args.out)
     if out.exists():
         raise ValueError('output must be new')
-    cases, glossary = build()
+    if args.dataset == 'holdout':
+        from benchmark.holdout import build as dataset_builder, PROVENANCE as provenance
+    else:
+        dataset_builder, provenance = build, PROVENANCE
+    cases, glossary = dataset_builder()
     records = records_for(cases)
     score(cases, [])  # Validate frozen labels before importing either evaluated engine.
     identities = {(r['key'], r['locale'], r['occurrence']) for r in records}
@@ -94,12 +100,14 @@ def main(argv=None):
     engines = {'current': args.engine.resolve()}
     if args.baseline:
         engines['baseline'] = args.baseline.resolve()
+    if args.historical:
+        engines['historical'] = args.historical.resolve()
     identities = {label: engine_identity(path) for label, path in engines.items()}
     out.mkdir(parents=True)
     write_json(out / 'records.json', records)
     write_json(out / 'glossary.json', glossary)
     result = {'benchmark_hash': digest({'cases': cases, 'glossary': glossary}),
-              'provenance': PROVENANCE, 'cases': len(cases), 'engines': identities, 'quality': {}, 'performance': {}}
+              'provenance': provenance, 'dataset': args.dataset, 'cases': len(cases), 'engines': identities, 'quality': {}, 'performance': {}}
     for label, engine in engines.items():
         predictions, measurement = measure(engine, out / 'records.json', out / 'glossary.json',
                                             out / label / 'quality', out / label / 'quality-cache')

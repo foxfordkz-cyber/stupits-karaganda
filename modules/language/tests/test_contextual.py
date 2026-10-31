@@ -143,7 +143,7 @@ class ContextualTests(unittest.TestCase):
     def test_tampered_cached_proposals_are_recomputed(self):
         r = record()
         expected = self.run_records([r])['proposals']
-        key = digest({'kind': 'local', 'version': RULES_VERSION, 'record': r, 'glossary': EMPTY})
+        key = digest({'kind': 'local-v2', 'version': RULES_VERSION, 'record': r, 'glossary_hash': digest(EMPTY)})
         with Cache(self.cache) as cache:
             cached = cache.get(key)
             cached['proposals'][0]['reviewed_by_human'] = True

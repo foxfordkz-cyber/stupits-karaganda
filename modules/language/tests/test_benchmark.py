@@ -28,6 +28,21 @@ class BenchmarkTests(unittest.TestCase):
         self.assertIsNone(score([], [])['micro']['f1'])
         self.assertIsNone(score([], [])['micro']['recall'])
 
+    def test_post_freeze_challenge_declares_author_bias_and_preserves_labels(self):
+        from benchmark.holdout import build as challenge, PROVENANCE as origin
+        from bekzat_language.contracts import digest
+        cases, glossary = challenge()
+        self.assertEqual(len(cases), 63)
+        self.assertEqual(sum(len(c['expected']) for c in cases), 28)
+        self.assertFalse(origin['used_for_rule_tuning'])
+        self.assertFalse(origin['independent_author'])
+        self.assertFalse(origin['native_speaker_validated'])
+        original = digest({'cases': cases, 'glossary': glossary})
+        self.assertEqual(original, 'b2575464d696a0d113afcfd6ad1c4862aa90d69d454919bcf3d58d7cbfa7bb96')
+        score(cases, [])
+        self.assertEqual(original, digest({'cases': cases, 'glossary': glossary}))
+        self.assertTrue(all(c['id'] not in {d['id'] for d in build()[0]} for c in cases))
+
     def test_duplicate_same_type_prediction_does_not_inflate_tp(self):
         prediction = {'input_index': 0, 'issue_type': 'orthography'}
         result = score(self.cases, [prediction, prediction])

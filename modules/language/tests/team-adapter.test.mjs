@@ -32,6 +32,12 @@ test('language adapter produces shared report, preserves entry identity and uses
   const index = JSON.parse(readFileSync(f.out + '.details/finding_index.json', 'utf8'));
   assert.equal(index[0].entry_id, 'syntheticGift#1');
   assert.equal(index[0].source_hash, f.bundle.entries[0].source_hash);
+  const queue = JSON.parse(readFileSync(f.out + '.details/review_queue.json', 'utf8'));
+  assert.equal(queue.rows[0].occurrence, 1);
+  assert.equal(queue.rows[0].source_hash, f.bundle.entries[0].source_hash);
+  assert.equal(queue.rows[0].target_hash, f.bundle.entries[0].target_hash);
+  assert.equal(queue.rows[0].reviewed_by_human, false);
+  assert.equal(queue.rows[0].status, 'pending_human_review');
   const out2 = join(f.dir, 'again.json');
   runLanguage({ bundle: f.input, glossary: f.glossary, out: out2 });
   const metrics = JSON.parse(readFileSync(out2 + '.details/metrics.json', 'utf8'));

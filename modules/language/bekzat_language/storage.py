@@ -35,6 +35,7 @@ class Cache:
         self.directory = private_path(directory)
         self.db = None
         self.error_code = None
+        self.pending = 0
 
     @property
     def available(self):
@@ -84,11 +85,22 @@ class Cache:
             self.delete(key)
             return None
 
-    def put(self, key, value):
+    def flush(self):
+        if self.available and self.pending:
+            try:
+                self.db.commit()
+                self.pending = 0
+            except sqlite3.Error:
+                self._unavailable()
+
+    def put(self, key, value, *, durable=True):
+        """Model responses commit immediately; cheap local work may batch 64 writes."""
         if self.available:
             try:
                 self.db.execute("INSERT OR REPLACE INTO results VALUES (?, ?)", (key, canonical(value)))
-                self.db.commit()
+                self.pending += 1
+                if durable or self.pending >= 64:
+                    self.flush()
             except sqlite3.Error:
                 self._unavailable()
 
@@ -96,12 +108,14 @@ class Cache:
         if self.available:
             try:
                 self.db.execute("DELETE FROM results WHERE key = ?", (key,))
-                self.db.commit()
+                self.pending += 1
+                self.flush()
             except sqlite3.Error:
                 self._unavailable()
 
     def __exit__(self, *args):
         try:
+            self.flush()
             if self.db is not None:
                 self.db.close()
         finally:

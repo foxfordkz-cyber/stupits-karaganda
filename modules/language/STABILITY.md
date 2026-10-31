@@ -60,3 +60,23 @@ python -m unittest discover -s tests -v
 Интегратор должен запускать анализ как фоновое задание. Исключения конфигурации/файловой системы и код `1` превращаются в ошибку задания, а не остановку веб-процесса; код `2` сохраняет частичный отчёт. Одновременные платные задания с одним кэшем следует сериализовать. Отчёт для UI читается после итогового `metrics.json`; для публикации нескольких файлов нужна транзакция/переключение каталога на уровне сервера.
 
 Этот модуль не может подтвердить доступность сайта, состояние базы сайта, секреты deployment, HTTPS, лимиты хостинга, health-check, rollback или нагрузочную устойчивость frontend/backend. Такие проверки выполняются в репозитории интегратора после получения доступа. Исходные выгрузки, частные отчёты и кэш остаются вне Git; схема находки и `reviewed_by_human=false` сохранены.
+# Version 1.4 integration
+
+160 Python regressions, including bounded morphology, terminology inflections, polarity,
+inline foreign text, transpositions, checkpoint/crash recovery and review-queue identity.
+The complete Python suite is now called from the module's Node test, so shared npm CI
+executes it without changes to root workflows. Repository Node count: 159.
+Original malformed JSON/Unicode, corrupt cache, provider timeout/output bounds, duplicate
+occurrence, invalid severity/confidence and source-hash tests remain active.
+
+New failure reasons are whitelisted; no provider exception payload enters logs. An
+oversized request cannot reserve charges or launch a provider. A failed final cache
+flush marks partial. See PERFORMANCE.md for checkpoint durability and interrupted runs.
+Review handoff is a sidecar; existing reviews/history/export contracts remain unchanged.
+Real core + report CLI smoke passed on synthetic data; no deployment uptime claim.
+
+Running the full Python suite in GitHub CI exposed a platform/interpreter difference:
+the JSON decoder on Linux accepted 5000 levels where the local decoder raised
+RecursionError. The loader now enforces 128 nesting levels before parsing, with escaped
+quotes and brackets inside strings excluded. Tests cover 128/129 levels and quoted
+brackets. This makes rejection deterministic without changing global recursion limits.
