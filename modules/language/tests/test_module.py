@@ -286,7 +286,7 @@ class ModuleTests(unittest.TestCase):
                     (checkout / ".git").write_text("gitdir: synthetic-metadata\n", encoding="utf-8")
                 with self.assertRaisesRegex(ValueError, "outside every Git checkout"):
                     private_path(checkout / "private" / "cache")
-        self.assertEqual(private_path(self.path / "external-cache"), self.path / "external-cache")
+        self.assertEqual(private_path(self.path / "external-cache"), (self.path / "external-cache").resolve())
 
     def test_cache_lock_prevents_concurrent_writer(self):
         with Cache(self.cache):
