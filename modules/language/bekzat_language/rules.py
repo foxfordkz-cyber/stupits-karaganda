@@ -4,9 +4,9 @@ import unicodedata
 from functools import lru_cache
 from .contracts import finding
 from .proposals import spelling_proposal
-from .morphology import diagnose as morphology_diagnostics, CASE_FAMILIES
+from .morphology import diagnose as morphology_diagnostics, CASE_FAMILIES, noun_forms
 
-RULES_VERSION = "kk-contextual-1.4.0"
+RULES_VERSION = "kk-contextual-1.4.1"
 BRACED_SLOT = r"\{(?P<name>[A-Za-z_][A-Za-z_0-9]*)(?:\s*,\s*(?:number|date|time)(?:\s*,[^{}]*)?)?\}"
 PRINTF_SLOT = r"%(?:\d+\$)?[-+#0 ]*(?:\d+|\*(?:\d+\$)?)?(?:\.(?:\d+|\*(?:\d+\$)?))?[sdif]"
 DYNAMIC_SLOT = re.compile(r"%%|" + BRACED_SLOT + "|" + PRINTF_SLOT)
@@ -68,6 +68,14 @@ def applicable(entry, record):
         hits(form, record["source"]) for form in entry["source_forms"])
 
 
+def term_forms(entry, form):
+    """Opt-in, bounded inflection of the last word; no arbitrary suffix stripping."""
+    if entry.get('inflect_native') is not True:
+        return [form]
+    prefix, _, last = form.rpartition(' ')
+    return [(prefix + ' ' if prefix else '') + value for value in noun_forms(last)]
+
+
 def protected_text(record, glossary=None, *, mask_slots=True):
     """Mask markup, URLs, slots and explicitly declared brands/names without changing offsets."""
     text = record["target"]
@@ -84,8 +92,8 @@ def protected_text(record, glossary=None, *, mask_slots=True):
     if glossary:
         # An explicitly allowed term is not a language/orthography error. Protect
         # just that term: Russian/English prose around a brand remains detectable.
-        allowed = {form for entry in glossary['entries'] if applicable(entry, record)
-                   for form in entry['allowed_forms']}
+        allowed = {surface for entry in glossary['entries'] if applicable(entry, record)
+                   for form in entry['allowed_forms'] for surface in term_forms(entry, form)}
         for form in sorted(allowed, key=len, reverse=True):
             text = phrase_pattern(form).sub(lambda m: ' ' * len(m[0]), text)
     return text
@@ -246,7 +254,8 @@ def term_contexts(records, glossary):
             if entry.get("consistent") is not True or not applicable(entry, record):
                 continue
             matched = sorted(((m.start(), m.end(), form, variant)
-                for form, variant in entry.get('variants', {}).items() for m in hits(form, masked)),
+                for lemma, variant in entry.get('variants', {}).items()
+                for form in term_forms(entry, lemma) for m in hits(form, masked)),
                 key=lambda x: (-(x[1] - x[0]), x[0], x[2]))
             occupied = []
             for start, end, form, variant in matched:

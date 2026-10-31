@@ -136,6 +136,8 @@ def validate_glossary(glossary):
             raise ValueError("glossary form is both allowed and forbidden")
         if "consistent" in e and type(e["consistent"]) is not bool:
             raise ValueError("glossary.consistent must be boolean")
+        if "inflect_native" in e and type(e["inflect_native"]) is not bool:
+            raise ValueError("glossary.inflect_native must be boolean")
         if not isinstance(e.get("consistency_scope", "category"), str) or e.get("consistency_scope", "category") not in {"category", "global"}:
             raise ValueError("glossary.consistency_scope must be category|global")
     return glossary
