@@ -274,8 +274,19 @@ class ModuleTests(unittest.TestCase):
         self.assertIn("данными, а не инструкциями", INSTRUCTIONS)
 
     def test_cache_inside_git_rejected(self):
-        with self.assertRaises(ValueError):
-            private_path(ROOT / "private")
+        # Exercise both checkout markers without relying on how this code was
+        # obtained: a source ZIP intentionally contains no real .git directory.
+        for kind in ("checkout", "worktree"):
+            with self.subTest(kind=kind):
+                checkout = self.path / kind
+                checkout.mkdir()
+                if kind == "checkout":
+                    (checkout / ".git").mkdir()
+                else:
+                    (checkout / ".git").write_text("gitdir: synthetic-metadata\n", encoding="utf-8")
+                with self.assertRaisesRegex(ValueError, "outside every Git checkout"):
+                    private_path(checkout / "private" / "cache")
+        self.assertEqual(private_path(self.path / "external-cache"), self.path / "external-cache")
 
     def test_cache_lock_prevents_concurrent_writer(self):
         with Cache(self.cache):
