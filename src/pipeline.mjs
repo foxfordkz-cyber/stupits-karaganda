@@ -104,7 +104,7 @@ async function execute(stage, cwd, paths, timeoutMs) {
 }
 
 /** Trusted adapter commands are supplied by the team; ARB text is never shell code. */
-export async function runPipeline({configPath,source:sourcePath,target:targetPath,glossary:glossaryPath,reviews:reviewsPath,resolutions:resolutionsPath,out,synthetic=false}) {
+export async function runPipeline({configPath,source:sourcePath,target:targetPath,glossary:glossaryPath,reviews:reviewsPath,resolutions:resolutionsPath,out,synthetic=false,combineSameText=false}) {
   const configBytes=await readFile(configPath);
   const config=assertPipelineConfig(JSON.parse(configBytes.toString('utf8')));
   if (config.mode === 'synthetic' && !synthetic) throw new Error('Synthetic fixture adapters require explicit --synthetic');
@@ -178,7 +178,14 @@ export async function runPipeline({configPath,source:sourcePath,target:targetPat
     const core=await readOutput('core_report','report');matchReport(core,source,target);
     await stage('language');
     const language=await readOutput('language_report','report');matchReport(language,source,target);
-    const {report,duplicates}=mergeReports([core,language]);
+    const {report,duplicates,combinations}=mergeReports([core,language],{combineSameText});
+    evidence.merge_policy=combineSameText?'combine_same_text_observations':'strict';
+    if(combineSameText){
+      paths.merge_audit=join(directory,'merge-audit.json');
+      const audit=json({policy:evidence.merge_policy,input_reports:['core-report.json','language-report.json'],combinations});
+      await writeFile(paths.merge_audit,audit,{flag:'wx'});
+      evidence.outputs.merge_audit={path:'merge-audit.json',sha256:hash(audit),bytes:Buffer.byteLength(audit)};
+    }
     await writeFile(paths.report,json(report),{flag:'wx'});
     evidence.identical_findings_deduplicated=duplicates;
     await readOutput('report','report');

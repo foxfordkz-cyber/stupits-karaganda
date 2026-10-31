@@ -31,6 +31,7 @@ const adapterSource=[
   "}else if(stage==='core'||stage==='language'){",
   " if(a.behavior==='mutate-bundle')await writeFile(a.bundle,'{}');",
   " let findings=[];",
+  " if(a.behavior==='two-observations'){const e=(await read(a.bundle)).entries[0];const f={key:e.key,issue_type:'orthography',severity:'low',source:e.source,target:e.target,evidence:'Synthetic first observation',suggestion:'First proposal',confidence:0.7,reviewed_by_human:false};findings=[f,{...f,evidence:'Synthetic second observation',suggestion:'Second proposal'}];}",
   " if(a.behavior==='fake-human'){const e=(await read(a.bundle)).entries[0];findings=[{key:e.key,issue_type:'same_as_source',severity:'low',source:e.source,target:e.target,evidence:'unit test only',suggestion:'',confidence:0.5,reviewed_by_human:true}];}",
   " await writeFile(a.out,JSON.stringify(findings));",
   "}else if(stage==='render'){await writeFile(a.out,'<!doctype html><html><body>UNIT TEST</body></html>');}",
@@ -78,6 +79,21 @@ test('synthetic adapters require explicit flag and production cannot silently us
   await assert.rejects(runPipeline({...input,synthetic:false}),/explicit --synthetic/);
   config.mode='production';await writeConfig();
   await assert.rejects(runPipeline(input),/requires a config/);
+ });
+});
+
+test('pipeline records explicit same-text consolidation and binds the complete audit hash',async()=>{
+ await harness(async({input,config,writeConfig})=>{
+  config.stages.language.argv.push('--behavior','two-observations');await writeConfig();
+  const result=await runPipeline({...input,combineSameText:true});
+  assert.equal(result.evidence.status,'analysis_passed');
+  assert.equal(result.evidence.merge_policy,'combine_same_text_observations');
+  const audit=await readFile(join(result.directory,'merge-audit.json'),'utf8');
+  assert.equal(hashText(audit),result.evidence.outputs.merge_audit.sha256);
+  assert.equal(JSON.parse(audit).combinations[0].variants.length,2);
+  const report=JSON.parse(await readFile(join(result.directory,'report.json'),'utf8'));
+  assert.equal(report[0].suggestion,'');
+  assert.equal(report[0].reviewed_by_human,false);
  });
 });
 

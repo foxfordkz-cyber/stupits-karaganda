@@ -6,10 +6,10 @@ Runner запускает реальные процессы по конфигу�
 ## Конфигурация
 
 Источник формата — `contracts/pipeline.schema.json`.
-`contracts/examples/pipeline.json` описывает ожидаемые команды будущих модулей.
+`contracts/examples/pipeline.json` подключает команды объединённых модулей.
 Файлы `modules/core/normalize.mjs`, `modules/core/check.mjs`,
 `modules/language/check.mjs`, `modules/report/render.mjs` и
-`modules/core/export.mjs` ещё должен предоставить соответствующий владелец.
+`modules/core/export.mjs` доступны в ветке `codex/team-integration`.
 Если фактические имена или аргументы отличаются, измените конфигурацию; переписывать runner не нужно.
 
 Каждая стадия задаёт `executable` и массив `argv`. Процессы запускаются с `shell:false`.
@@ -38,10 +38,11 @@ Runner запускает реальные процессы по конфигу�
 
 ## Производственный запуск
 
-После предоставления модулей:
+Выход должен находиться вне Git checkout: этого требует языковой модуль. Например,
+из корня проекта используйте соседний приватный каталог и новое имя запуска:
 
 ```sh
-node scripts/run-pipeline.mjs --config contracts/examples/pipeline.json --source data/intl_ru.arb --target data/intl_kk.arb --glossary private/glossary.csv --out outputs/run-001
+node scripts/run-pipeline.mjs --config contracts/examples/pipeline.json --source data/intl_ru.arb --target data/intl_kk.arb --glossary private/glossary.csv --out ../locqa-private/run-001
 ```
 
 Runner проходит стадии `normalize → core → language → merge → render`.
@@ -51,7 +52,7 @@ Runner проходит стадии `normalize → core → language → merge 
 Для нового запуска после реальной проверки переводов:
 
 ```sh
-node scripts/run-pipeline.mjs --config contracts/examples/pipeline.json --source data/intl_ru.arb --target data/intl_kk.arb --glossary private/glossary.csv --reviews private/reviews.json --out outputs/run-002
+node scripts/run-pipeline.mjs --config contracts/examples/pipeline.json --source data/intl_ru.arb --target data/intl_kk.arb --glossary private/glossary.csv --reviews private/reviews.json --out ../locqa-private/run-002
 ```
 
 При наличии `--reviews` нужна стадия `export`. После неё runner независимо вызывает
@@ -76,6 +77,21 @@ node scripts/run-pipeline.mjs --config contracts/examples/pipeline.json --source
 Исходники копируются байт-в-байт в `inputs/`, и адаптерам передаются именно эти копии.
 Изменение копий или результатов предыдущих стадий обнаруживается по SHA-256.
 Исходные пользовательские пути не передаются адаптерам в аргументах.
+
+## Несколько наблюдений для одной строки
+
+По умолчанию merge остаётся строгим: разные находки с одинаковыми key/type
+останавливают маршрут. Опция CLI `--combine-same-text` явно включает политику
+для нескольких машинных наблюдений с **одинаковыми source и target**.
+Все объяснения и предложения сохраняются в evidence и `merge-audit.json`
+с индексами первоначальных report-массивов. Сами отчёты модулей не меняются.
+Серьёзность берётся максимальная для очереди проверки, confidence — минимальная;
+если предложения различаются, итоговый suggestion пуст. Человеческое решение
+не создаётся. Разные версии текста или человеческие статусы по-прежнему блокируются.
+
+Хэш merge-audit входит в pipeline-evidence и проверяется после следующих стадий.
+Общие схемы report/bundle/reviews не изменены. API: `runPipeline({ ..., combineSameText: true })`.
+Это объединение наблюдений, а не разрешение дублей ARB или выбор исправления.
 
 ## Что проверяется
 
