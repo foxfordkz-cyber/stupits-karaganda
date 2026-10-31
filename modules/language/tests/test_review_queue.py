@@ -63,3 +63,40 @@ class ReviewQueueTests(unittest.TestCase):
         self.rows[0]['source_hash'] = 'a' * 64
         with self.assertRaisesRegex(ValueError, 'source_hash_mismatch'):
             build_review_queue(self.rows, self.run_engine(self.rows))
+
+    def test_reordering_bundle_keeps_review_ids_and_priority_stable(self):
+        rows = [{**r, 'bundle_index': n, 'entry_id': 'duplicate#' + str(r['occurrence'])}
+                for n, r in enumerate(self.rows)]
+        old = build_review_queue(rows, self.run_engine(rows))
+        changed = [{**r, 'bundle_index': n} for n, r in enumerate(reversed(rows))]
+        new = build_review_queue(changed, self.run_engine(changed))
+        self.assertEqual([r['review_id'] for r in old['rows']], [r['review_id'] for r in new['rows']])
+        self.assertEqual(new['version'], 2)
+
+    def test_explanatory_suggestion_is_not_a_whole_text_candidate(self):
+        queue = build_review_queue(self.rows, self.result)
+        self.assertTrue(all(r['proposed_text'] is None for r in queue['rows']))
+        self.assertTrue(all(r['proposal_status'] == 'needs_human_translation' for r in queue['rows']))
+
+    def test_spelling_candidate_is_exported_and_conflicts_stay_separate(self):
+        row = {**self.rows[0], 'source': 'Подарок и безопасность',
+               'source_hash': text_hash('Подарок и безопасность'), 'target': 'Сыйлык кауіпсіздік'}
+        queue = build_review_queue([row], self.run_engine([row]))
+        self.assertEqual(len(queue['rows']), 2)
+        self.assertTrue(all(r['proposed_text'] for r in queue['rows']))
+        self.assertTrue(all(len(r['conflicting_candidate_ids']) == 2 for r in queue['rows']))
+        for r in queue['rows']:
+            self.assertEqual(r['candidates'][0]['text_hash'], text_hash(r['proposed_text']))
+            self.assertFalse(r['candidates'][0]['reviewed_by_human'])
+
+    def test_forged_candidate_or_occurrence_is_rejected(self):
+        row = {**self.rows[0], 'target': 'Сыйлык'}
+        result = self.run_engine([row])
+        result['proposals'][0]['candidate_text'] = 'Подменено'
+        with self.assertRaises(ValueError):
+            build_review_queue([row], result)
+
+    def test_high_severity_precedes_spelling_suggestion(self):
+        rows = [dict(self.rows[0], key='a', target='Сыйлык'), dict(self.rows[1], key='z')]
+        queue = build_review_queue(rows, self.run_engine(rows))
+        self.assertEqual([r['severity'] for r in queue['rows']], ['high', 'low'])

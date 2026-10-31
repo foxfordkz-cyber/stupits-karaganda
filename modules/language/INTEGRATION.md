@@ -67,19 +67,22 @@ node modules/language/smoke.mjs --out C:/Temp/locqa-private/smoke-core-001 --cor
 
 ## Действия команды
 
-Версия 1.4 добавляет `<out>.details/review_queue.json`, отдельный служебный контракт
-`kind: bekzat-language-review-queue`, `version: 1`. Каждая строка содержит девять полей
+Этап 4 расширяет существующий `<out>.details/review_queue.json`, служебный контракт
+`kind: bekzat-language-review-queue`, `version: 2`. Каждая строка содержит девять полей
 находки плюс `locale`, `occurrence`, точные `source_hash`/`target_hash`, `record_hash`,
 `finding_hash`, `review_id`, `input_index`, `finding_index` и командные `entry_id`/`bundle_index`.
-`review_id` связывает полный снимок записи с конкретной находкой. Смена текста, контекста,
-вхождения или подсказки меняет идентификатор; устаревший индекс/хэш отклоняется при сборке.
-В `record_hash` входит служебный bundle_index, поэтому перестановка bundle может также
-потребовать новой привязки. Все строки имеют `status: pending_human_review` и
+`review_id` связывает запись, находку и полные кандидаты; перестановка bundle его не меняет.
+Смена текста, контекста, вхождения или подсказки меняет идентификатор.
+`record_hash` сохраняет полную позиционную provenance, включая bundle_index.
+Добавлены `context`, `original_text`, `candidates`, `proposed_text`, `proposal_status`,
+`conflicting_candidate_ids`; подробности и миграция v1 описаны в [REVIEW_GATE.md](REVIEW_GATE.md).
+Все строки имеют `status: pending_human_review` и
 `reviewed_by_human: false`. `report_hash` относится к отдельному language-report.
 
 Очередь не является `reviews`, не содержит человеческих решений и никогда не разрешает
-экспорт. Она не читает и не перезаписывает историю Тони/Айданы. Официальные reviews,
-проверка актуальности одобрений и сохранение истории остаются у существующих модулей.
+экспорт. Она не читает и не перезаписывает историю Тони/Айданы. Новый review-gate принимает
+официальные reviews, проверяет точную версию и делегирует аудит/экспорт существующим API;
+история решений сохраняется во входном файле и неизменяемом снимке результата.
 Тони может использовать sidecar для точной привязки дубликатов; его текущий интерфейс
 принимает общий report/bundle, а чтение новой очереди ещё должен подключить владелец UI.
 После merge отчётов индексы нужно перенести явно, а не применять language finding_index
