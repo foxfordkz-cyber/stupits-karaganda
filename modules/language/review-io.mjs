@@ -26,7 +26,7 @@ export function readText(path, limit = 64 * 1024 * 1024) {
   if (!stat.isFile() || stat.size > limit) throw new Error('input_size_or_type');
   const bytes = readFileSync(path);
   if (bytes.length > limit) throw new Error('input_size_or_type');
-  return new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+  return new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes);
 }
 
 export function parseJson(text) {

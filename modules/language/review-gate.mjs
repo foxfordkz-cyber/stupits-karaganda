@@ -82,7 +82,8 @@ export function assessReviews({ bundle, report, queue, reviews, authorizedReview
       } catch { problems.push({ code: 'core_export_preflight_rejected' }); }
     }
   }
-  const decided = new Set(reviews.decisions.map(d => d.entry_id));
+  // A blocked batch must not make its entries disappear from the pending list.
+  const decided = new Set(problems.length ? [] : reviews.decisions.map(d => d.entry_id));
   const pending = [...scope.keys()].filter(id => !decided.has(id)).sort();
   const status = problems.length ? 'BLOCKED' : approved.length ? 'READY_FOR_INTEGRATOR' :
     pending.length || !reviews.decisions.length ? 'HUMAN_REVIEW_PENDING' : 'NO_APPROVED_CHANGES';

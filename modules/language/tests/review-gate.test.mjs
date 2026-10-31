@@ -50,6 +50,7 @@ test('stale source, original text and unauthorized reviewer cannot enter handoff
     if (field === 'original') { d.original_text = 'old target'; d.original_hash = hashText(d.original_text); }
     if (field === 'reviewer') d.reviewer = 'NOT_IN_ALLOWLIST';
     const g = assessReviews(x); assert.equal(g.status, 'BLOCKED'); assert.equal(g.approved_reviews, null);
+    assert.deepEqual(g.unconfirmed_entry_ids, ['testGift#1']);
   }
 });
 test('duplicate occurrence, absent target, changed queue and model human flag fail closed', () => {
@@ -113,5 +114,6 @@ test('strict JSON/UTF8, private paths and atomic publication preserve existing c
   const dir = temporary(t), file = join(dir, 'out.json'); writeAtomicNew(file, { v: 1 });
   assert.throws(() => writeAtomicNew(file, { v: 2 }), /output_exists/); assert.deepEqual({ ...parseJson(readText(file)) }, { v: 1 });
   writeFileSync(join(dir, 'bad'), Buffer.from([0xc0, 0xaf])); assert.throws(() => readText(join(dir, 'bad')));
+  writeFileSync(join(dir, 'bom'), '\ufeff{"x":1}'); assert.equal(readText(join(dir, 'bom')).charCodeAt(0), 0xfeff);
   mkdirSync(join(dir, '.git')); assert.throws(() => privatePath(join(dir, 'nested', 'out')), /inside_git/);
 });
