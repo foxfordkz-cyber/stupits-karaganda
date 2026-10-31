@@ -44,3 +44,8 @@ test('requested real core must exist; smoke never silently substitutes a fixture
   const root = directory(t);
   await assert.rejects(runSmoke(join(root, 'smoke'), { coreRoot: join(root, 'missing-core') }), /core adapters unavailable/);
 });
+
+test('requested real report module must exist; smoke never silently substitutes a fixture', async t => {
+  const root = directory(t);
+  await assert.rejects(runSmoke(join(root, 'smoke'), { reportRoot: join(root, 'missing-report') }), /report adapter unavailable/);
+});

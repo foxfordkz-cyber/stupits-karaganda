@@ -15,6 +15,7 @@ from bekzat_language import analyze
 from bekzat_language.cli import read_bounded
 from bekzat_language.contracts import strict_json, validate_glossary
 from bekzat_language.storage import private_path, write_json
+from bekzat_language.review_queue import build_review_queue
 
 
 def load_glossary(path):
@@ -121,6 +122,7 @@ def main(argv=None):
         for name in ('finding_index', 'proposals', 'diagnostics', 'metrics'):
             write_json(details / (name + '.json'), result[name])
         write_json(details / 'skipped_entries.json', skipped)
+        write_json(details / 'review_queue.json', build_review_queue(selected, result))
         # Write the official output last; the runner must still check process exit status.
         write_json(out, result['findings'])
         return 0 if result['metrics']['status'] == 'complete' else 2
