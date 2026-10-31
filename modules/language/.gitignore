@@ -1,0 +1,11 @@
+__pycache__/
+*.py[cod]
+.venv/
+*.sqlite*
+*.arb
+*.tgz
+*.gz
+.env*
+private/
+reports/
+cache/
