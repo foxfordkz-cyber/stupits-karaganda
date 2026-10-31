@@ -9,6 +9,7 @@
   "scripts": {
     "test": "node --test",
     "check": "node scripts/check.mjs",
+    "verify-team": "node scripts/verify-team.mjs",
     "demo": "node scripts/demo.mjs",
     "validate": "node scripts/validate.mjs",
     "evaluate": "node scripts/evaluate.mjs",

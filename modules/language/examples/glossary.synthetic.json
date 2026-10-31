@@ -1,0 +1,18 @@
+{
+  "status": "draft",
+  "description": "Synthetic integration glossary, not agreed terminology or a dataset extract.",
+  "entries": [
+    {
+      "id": "player", "source_forms": ["игрок", "игрока", "игроки"],
+      "allowed_forms": ["ойыншы", "ойыншының", "ойыншылар"], "preferred": "ойыншы",
+      "forbidden_forms": {"ойнаушы": "ойыншы"}, "consistent": true,
+      "variants": {"ойыншы": "player_standard", "ойыншының": "player_standard", "ойыншылар": "player_standard", "ойнаушы": "player_alternative"}
+    },
+    {
+      "id": "quest", "source_forms": ["задание", "задания"],
+      "allowed_forms": ["тапсырма", "тапсырмалар"], "preferred": "тапсырма",
+      "forbidden_forms": {"міндет": "тапсырма"}, "consistent": true,
+      "variants": {"тапсырма": "quest_standard", "тапсырмалар": "quest_standard", "міндет": "quest_alternative"}
+    }
+  ]
+}

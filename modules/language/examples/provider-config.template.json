@@ -1,0 +1,12 @@
+{
+  "command": ["python", "/absolute/path/to/team_model_adapter.py"],
+  "provider_id": "REPLACE_WITH_PROVIDER",
+  "model_id": "REPLACE_WITH_MODEL",
+  "revision": "REPLACE_WITH_ADAPTER_AND_MODEL_REVISION",
+  "parameters": {},
+  "glossary_scope": "full",
+  "max_output_tokens": 1500,
+  "input_usd_per_million": null,
+  "output_usd_per_million": null,
+  "timeout_seconds": 60
+}

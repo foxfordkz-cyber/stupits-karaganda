@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Prepared localization record v1",
+  "type": "object",
+  "additionalProperties": true,
+  "required": ["key", "locale", "source", "target", "occurrence", "source_hash"],
+  "properties": {
+    "key": {"type": "string", "minLength": 1},
+    "locale": {"type": "string", "pattern": "^[kK][kK]([-_][A-Za-z0-9]+)*$"},
+    "source": {"type": "string", "minLength": 1},
+    "target": {"type": "string", "minLength": 1},
+    "occurrence": {"type": "integer", "minimum": 1},
+    "source_hash": {"type": "string", "pattern": "^[a-fA-F0-9]{64}$"},
+    "category": {"type": "string"},
+    "description": {"type": "string"},
+    "context": {"type": ["string", "object"]},
+    "metadata": {"type": "object"},
+    "@metadata": {"type": "object"}
+  }
+}

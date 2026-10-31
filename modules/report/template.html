@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; connect-src 'none'; base-uri 'none'; form-action 'none'">
+  <title>Qazaq Loc QA · Проверка перевода</title>
+  <style>/* REPORT_STYLE */</style>
+</head>
+<body>
+<a class="skip" href="#detail">К карточке перевода</a>
+<header class="topbar">
+  <div class="brand"><span class="brand-icon" aria-hidden="true">Q</span><div><strong>Qazaq <span>Loc QA</span></strong><small>Рабочее место редактора</small></div></div>
+  <div class="top-meta"><span class="offline"><i></i> Локальный отчёт</span><span id="locale" class="locale"></span></div>
+</header>
+<main>
+  <section class="heading"><div><p class="eyebrow">КОНТРОЛЬ КАЧЕСТВА ПЕРЕВОДА</p><h1>От находки — к решению.</h1><p class="subheading">Оригинал, объяснение и предложение — в одном контексте.</p></div><div class="save-state" id="save-state">Готов к работе</div></section>
+  <div id="data-notice" class="notice" hidden></div>
+  <section class="stats" aria-label="Сводка отчёта">
+    <div><span>Кандидаты на проверку</span><strong id="stat-findings">0</strong><small id="stat-types"></small></div>
+    <div><span>Рабочие решения</span><strong id="stat-drafts">0</strong><small>Без отметки человека</small></div>
+    <div><span>Подтверждённые проблемы</span><strong id="stat-confirmed">—</strong><small id="precision-state">Анкета не загружена</small></div>
+    <div><span>Строки с проверкой</span><strong id="stat-reviewed">0</strong><small>По импортированному журналу</small></div>
+    <div><span>Проверенные исправления</span><strong id="stat-corrected">0</strong><small>Применимые принятые версии</small></div>
+  </section>
+  <section class="toolbar" aria-label="Сохранение и восстановление">
+    <div class="toolbar-group"><button id="export-workspace" class="primary">↓ Сохранить решения</button><button id="import-button">↑ Импорт решений</button><input id="import-file" type="file" accept=".json,application/json" hidden></div>
+    <div class="toolbar-group"><button id="expert-toggle" aria-pressed="false">Отчёт для эксперта</button><button id="export-html">Сохранить HTML</button><button id="export-reviews">Экспорт reviews</button></div>
+  </section>
+  <p id="message" class="message" role="status" aria-live="polite">Рабочие решения не создают человеческих одобрений. Все данные остаются в этом файле и выбранных вами локальных загрузках.</p>
+  <p id="session-alert" class="notice" hidden></p>
+  <section id="review-workspace" class="workspace">
+    <aside class="queue-panel" aria-label="Очередь находок">
+      <div class="queue-title"><h2>Очередь проверки</h2><span id="queue-count"></span></div>
+      <label class="search-label"><span class="sr-only">Поиск по ключу и тексту</span><input id="search" type="search" placeholder="Поиск по ключу и тексту…"></label>
+      <div class="filters">
+        <label for="type-filter">Тип ошибки<select id="type-filter"><option value="">Все типы</option></select></label>
+        <label for="severity-filter">Серьёзность<select id="severity-filter"><option value="">Любая</option><option value="high">Высокая</option><option value="medium">Средняя</option><option value="low">Низкая</option></select></label>
+        <label for="status-filter" class="wide">Статус<select id="status-filter"><option value="">Все статусы</option><option value="pending">Без рабочего решения</option><option value="accepted">Принято в работу</option><option value="edited">Исправлено в работе</option><option value="rejected">Отклонено в работе</option><option value="reviewed">Есть применимая проверка</option><option value="confirmed">Проблема подтверждена</option><option value="dismissed">Проблема не подтверждена</option><option value="conflict">Конфликт рабочих версий</option><option value="stale">Устаревшие решения</option><option value="blocked">Нужна привязка к bundle</option></select></label>
+      </div>
+      <div class="queue-tools"><button id="reset-filters">Сбросить фильтры</button><button id="next-pending">К следующей без решения →</button></div>
+      <div class="queue-progress"><div id="progress-bar"></div></div>
+      <div id="queue" class="queue"></div>
+    </aside>
+    <article id="detail" class="detail" tabindex="-1"><p>Загрузка отчёта…</p></article>
+  </section>
+  <section id="expert-report" class="expert-report" hidden tabindex="-1" aria-label="Полный отчёт для эксперта"></section>
+  <details class="summary"><summary>Журнал и сводка решений <span id="journal-count"></span></summary><div id="journal"></div></details>
+  <footer><span>Qazaq Loc QA / Review workspace</span><span>Хэши точных текстов · Без сетевых запросов</span></footer>
+</main>
+<noscript><p>Для просмотра карточек и сохранения решений включите JavaScript в браузере. Отчёт работает локально без сервера.</p></noscript>
+<script id="report-data" type="application/json">/* REPORT_DATA */</script>
+<script>(async () => { 'use strict';
+/* REPORT_RUNTIME */
+})().catch(error => { document.getElementById('detail').textContent = 'Не удалось открыть отчёт: ' + error.message; });</script>
+</body>
+</html>
