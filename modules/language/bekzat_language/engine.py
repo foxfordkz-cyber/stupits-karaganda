@@ -60,7 +60,7 @@ def analyze(records, glossary, *, cache_dir, provider=None, max_requests=0, max_
     except (TypeError, ValueError, UnicodeError, RecursionError):
         records_hash = None
     contexts, consistency = term_contexts(good, glossary)
-    metrics = {"started_at_utc": started_at, "engine_version": "1.2.0", "rules_version": RULES_VERSION,
+    metrics = {"started_at_utc": started_at, "engine_version": "1.3.0", "rules_version": RULES_VERSION,
         "input_records": len(records), "valid_records": len(good),
         "quarantined_records": len(diagnostics), "records_hash": records_hash,
         "records_hash_scope": "complete_input" if records_hash else "unavailable_invalid_input",
@@ -77,6 +77,11 @@ def analyze(records, glossary, *, cache_dir, provider=None, max_requests=0, max_
     if provider:
         metrics["provider"] = {k: provider[k] for k in ("provider_id", "model_id", "revision",
             "input_usd_per_million", "output_usd_per_million")}
+        metrics["provider"]["glossary_scope"] = provider.get("glossary_scope", "full")
+        metrics["budget_forecast"] = {"uncached_records": 0, "uncached_reserved_tokens": 0,
+            "uncached_reserved_cost_usd": 0.0, "request_bytes": 0,
+            "full_glossary_bytes": 0, "selected_glossary_bytes": 0,
+            "scope": "sum of conservative per-record reservations for uncached work encountered in this run; not billed usage"}
     findings, finding_index, events, proposals = [], [], [], []
     provider_stopped = False
     logfile = None
@@ -118,6 +123,9 @@ def analyze(records, glossary, *, cache_dir, provider=None, max_requests=0, max_
                 candidates = [(f, "local") for f in local['findings']] + [(f, "corpus") for f in consistency[n]]
                 if provider:
                     request = build_request(record, glossary, contexts[n], provider)
+                    selection = request["glossary_selection"]
+                    event["glossary_selection"] = {k: selection[k] for k in
+                        ("mode", "full_glossary_hash", "total_entries", "selected_entries", "omitted_entries")}
                     model_key = digest({"kind": "model", "version": PROMPT_VERSION,
                         "config": provider, "request": request})
                     response = cache.get(model_key)
@@ -137,6 +145,13 @@ def analyze(records, glossary, *, cache_dir, provider=None, max_requests=0, max_
                                           "output_tokens": request["max_output_tokens"]}
                         reserve_tokens = sum(reserved_usage.values())
                         reserve_cost = cost(reserved_usage, provider)
+                        forecast = metrics["budget_forecast"]
+                        forecast["uncached_records"] += 1
+                        forecast["uncached_reserved_tokens"] += reserve_tokens
+                        forecast["uncached_reserved_cost_usd"] += reserve_cost
+                        forecast["request_bytes"] += len(canonical(request).encode("utf-8"))
+                        forecast["full_glossary_bytes"] += selection["full_glossary_bytes"]
+                        forecast["selected_glossary_bytes"] += selection["selected_glossary_bytes"]
                         fits = (metrics["provider_requests"] < max_requests and
                             metrics["reserved_tokens"] + reserve_tokens <= max_tokens and
                             metrics["cost_usd_reserved"] + reserve_cost <= max_cost_usd + 1e-12)

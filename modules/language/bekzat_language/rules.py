@@ -5,8 +5,11 @@ from functools import lru_cache
 from .contracts import finding
 from .proposals import spelling_proposal
 
-RULES_VERSION = "kk-contextual-1.2.0"
-PLACEHOLDER = re.compile(r"\{[A-Za-z_][A-Za-z_0-9]*\}")
+RULES_VERSION = "kk-contextual-1.3.0"
+BRACED_SLOT = r"\{(?P<name>[A-Za-z_][A-Za-z_0-9]*)(?:\s*,\s*(?:number|date|time)(?:\s*,[^{}]*)?)?\}"
+PRINTF_SLOT = r"%(?:\d+\$)?[-+#0 ]*(?:\d+|\*(?:\d+\$)?)?(?:\.(?:\d+|\*(?:\d+\$)?))?[sdif]"
+DYNAMIC_SLOT = re.compile(r"%%|" + BRACED_SLOT + "|" + PRINTF_SLOT)
+ICU_QUOTED = re.compile(r"(?<!')'(?:\{|\}|#)(?:[^']|'')*'(?!')")
 WORD = re.compile(r"[^\W\d_]+(?:['’ʻ‘][^\W\d_]+)*", re.UNICODE)
 KK_LETTERS = re.compile("[әғқңөұүһі]", re.I)
 # Small generic examples authored for this module, not extracted from supplied data.
@@ -36,7 +39,7 @@ LEXICAL_HINTS = {"пожалуйста": "өтінеміз", "нажмите": "
     "tanlang": "таңдаңыз", "xarid": "сатып алу", "muvaffaqiyatli": "сәтті", "uchun": "үшін",
     "sizning": "сіздің", "emas": "емес", "mablag": "қаражат", "yetarli": "жеткілікті"}
 SUFFIXES = "лары лері дары дері тары тері ның нің дың дің тың тің нан нен дан ден тан тен ға ге қа ке да де та те ны ні ды ді ты ті лар лер дар дер тар тер мен бен пен ым ім ың ің ы і".split()
-SUFFIX = re.compile(r"(?P<slot>\{[A-Za-z_][A-Za-z_0-9]*\})(?P<join>[-‐‑–'’]?)(?P<suffix>" +
+SUFFIX_AFTER = re.compile(r"(?P<join>[-‐‑–'’]?)(?P<suffix>" +
                     "|".join(sorted(SUFFIXES, key=len, reverse=True)) + r")(?!\w)", re.I)
 
 
@@ -60,13 +63,14 @@ def applicable(entry, record):
         hits(form, record["source"]) for form in entry["source_forms"])
 
 
-def protected_text(record, glossary=None):
+def protected_text(record, glossary=None, *, mask_slots=True):
     """Mask markup, URLs, slots and explicitly declared brands/names without changing offsets."""
     text = record["target"]
-    for pattern in (PLACEHOLDER, re.compile(r"https?://\S+"), re.compile(r"""<(?:[^"'<>]|"[^"]*"|'[^']*')*>"""),
-                    re.compile(r"[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}"),
-                    re.compile(r"%(?:\d+\$)?[-+#0 ]*(?:\d+|\*)?(?:\.(?:\d+|\*))?[sdif]|%%")):
+    for pattern in (ICU_QUOTED, re.compile(r"https?://\S+"), re.compile(r"""<(?:[^"'<>]|"[^"]*"|'[^']*')*>"""),
+                    re.compile(r"[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}")):
         text = pattern.sub(lambda m: " " * len(m[0]), text)
+    if mask_slots:
+        text = DYNAMIC_SLOT.sub(lambda m: " " * len(m[0]), text)
     names = metadata(record).get("language_neutral_terms", [])
     if isinstance(names, list):
         for name in names:
@@ -80,6 +84,38 @@ def protected_text(record, glossary=None):
         for form in sorted(allowed, key=len, reverse=True):
             text = phrase_pattern(form).sub(lambda m: ' ' * len(m[0]), text)
     return text
+
+
+def language_hints(signals, lang):
+    return [(word, LEXICAL_HINTS[word]) for word in signals[lang] if word in LEXICAL_HINTS]
+
+
+def fragment_suggestion(hints):
+    return ('Предлагаемые соответствия для фрагментов: ' +
+        '; '.join(f'«{word}» → «{replacement}»' for word, replacement in hints[:3]) +
+        '. Согласовать формы с предложением и сохранить подстановки; это не готовая замена всей строки.')
+
+
+def foreign_fragments(record, masked):
+    """Sentence-level evidence; a Kazakh sentence must not hide another language."""
+    out = []
+    for segment in re.finditer(r'[^.!?;:\n]+', masked):
+        text = segment[0].strip()
+        if not text or KK_LETTERS.search(text):
+            continue
+        words = [word[0].casefold() for word in WORD.finditer(text)]
+        signals = {lang: sorted(set(words) & lexicon) for lang, lexicon in LANGUAGE_WORDS.items()}
+        lang = max(signals, key=lambda value: len(signals[value]))
+        hints = language_hints(signals, lang)
+        if not hints or len(signals[lang]) < 2 or len(signals[lang]) / max(len(words), 1) < 0.5:
+            continue
+        start = segment.start() + len(segment[0]) - len(segment[0].lstrip())
+        end = segment.end() - (len(segment[0]) - len(segment[0].rstrip()))
+        out.append(finding(record, 'wrong_language',
+            f'Фрагмент «{record["target"][start:end]}» [{start}:{end}] содержит лексические признаки {lang}: ' +
+            '«' + '», «'.join(signals[lang]) + '». Проверен отдельный фрагмент; язык всей строки не утверждается.',
+            fragment_suggestion(hints), 0.75, 'high'))
+    return out
 
 
 def analyze_record(record, glossary, *, proposals=None):
@@ -132,15 +168,21 @@ def analyze_record(record, glossary, *, proposals=None):
         out.append(finding(record, "machine_translation_suspect",
             'Оборот «таңдауды жасадыңыз» буквально воспроизводит «сделали выбор»; возможна более естественная глагольная конструкция. Происхождение перевода не установлено.',
             'Сіз таңдау жасадыңыз.', 0.65, "low"))
-    for m in SUFFIX.finditer(target):
-        slot = m["slot"][1:-1]
+    visible = protected_text(record, mask_slots=False)
+    for token in DYNAMIC_SLOT.finditer(visible):
+        if token[0] == '%%':
+            continue
+        m = SUFFIX_AFTER.match(visible, token.end())
+        if not m:
+            continue
+        slot = token['name'] or token[0]
         slot_meta = meta.get("placeholders", {})
         slot_meta = slot_meta.get(slot, {}) if isinstance(slot_meta, dict) else {}
         if isinstance(slot_meta, dict) and slot_meta.get("suffix_handled_by_runtime") is True:
             continue
         out.append(finding(record, "suffix_harmony",
-            f'Фрагмент «{m[0]}» [{m.start()}:{m.end()}]: фиксированный аффикс «{m["suffix"]}» после динамического значения. Его применимость зависит от произношения подставленного значения; ошибка для всех значений не утверждается.',
-            f'Передать выбор аффикса после {m["slot"]} морфологическому форматтеру по произношению значения; в шаблоне не закреплять «{m["suffix"]}». Альтернатива — перестроить фразу без склонения подстановки.',
+            f'Фрагмент «{target[token.start():m.end()]}» [{token.start()}:{m.end()}]: фиксированный аффикс «{m["suffix"]}» после динамического значения. Его применимость зависит от произношения подставленного значения; ошибка для всех значений не утверждается.',
+            f'Передать выбор аффикса после {token[0]} морфологическому форматтеру по произношению значения; в шаблоне не закреплять «{m["suffix"]}». Альтернатива — перестроить фразу без склонения подстановки.',
             0.85))
     words = [m[0].casefold() for m in WORD.finditer(masked)]
     # Absence of Kazakh-specific letters alone is never an error.
@@ -159,18 +201,20 @@ def analyze_record(record, glossary, *, proposals=None):
         and not KK_LETTERS.search(masked)), None)
     lang = max(signals, key=lambda x: len(signals[x]))
     exact_ui = folded in UI_TRANSLATIONS
-    hints = [(w, LEXICAL_HINTS[w]) for w in signals[lang] if w in LEXICAL_HINTS]
+    hints = language_hints(signals, lang)
     if reference_match:
         lang = reference_match[0]
-        hints = [(w, LEXICAL_HINTS[w]) for w in signals[lang] if w in LEXICAL_HINTS]
+        hints = language_hints(signals, lang)
     if exact_ui or (reference_match and hints) or (hints and len(signals[lang]) >= 2 and len(signals[lang]) / max(len(words), 1) >= 0.35 and not KK_LETTERS.search(masked)):
         evidence = f'В тексте для {record["locale"]} обнаружены лексические признаки {lang}: «' + '», «'.join(signals[lang]) + '». Это эвристика, а не полноценное распознавание языка.'
         if reference_match:
             evidence += f' Весь target после NFC/trim/casefold совпадает с дополнительным переводом references.{reference_match[1]}: «{target}»; с RU-исходником он не совпадает.'
         suggestion = UI_TRANSLATIONS.get(folded)
         if suggestion is None:
-            suggestion = 'Предлагаемые соответствия для фрагментов: ' + '; '.join(f'«{w}» → «{v}»' for w, v in hints[:3]) + '. Согласовать формы с предложением и сохранить подстановки; это не готовая замена всей строки.'
+            suggestion = fragment_suggestion(hints)
         out.append(finding(record, "wrong_language", evidence, suggestion, 0.9 if exact_ui else 0.75, "high"))
+    else:
+        out.extend(foreign_fragments(record, masked))
     return out
 
 

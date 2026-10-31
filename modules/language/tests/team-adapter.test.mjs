@@ -137,3 +137,42 @@ test('numeric budgets and pilot size are validated before spawning', t => {
     assert.throws(() => runLanguage({ ...options, ...invalid }));
   }
 });
+
+test('mixed-language sentence and printf suffix survive the shared report boundary', t => {
+  const f = fixture(t);
+  const entry = f.bundle.entries[0];
+  entry.source = 'Добро пожаловать! Нажмите продолжить. Подарок для %1$s';
+  entry.target = 'Қош келдіңіз! Please click continue. %1$s-ға сыйлық';
+  entry.source_hash = hashText(entry.source);
+  entry.target_hash = hashText(entry.target);
+  writeFileSync(f.input, JSON.stringify(f.bundle));
+  assert.equal(runLanguage({ bundle: f.input, glossary: f.glossary, out: f.out }).status, 0);
+  const report = JSON.parse(readFileSync(f.out, 'utf8'));
+  assertContract('report', report);
+  assert.deepEqual(report.map(finding => finding.issue_type).sort(), ['suffix_harmony', 'wrong_language']);
+  assert.ok(report.every(finding => finding.reviewed_by_human === false));
+});
+
+test('zero-budget relevant glossary mode exports a forecast without executing an adapter', t => {
+  const f = fixture(t);
+  writeFileSync(f.glossary, 'ru,kk,en,comment\nподарок,сыйлық,gift,Synthetic\nстул,орындық,chair,Synthetic\n');
+  const config = join(f.dir, 'provider.json');
+  // Nonexistent executable would fail if the zero-budget guard attempted a call.
+  writeFileSync(config, JSON.stringify({
+    command: ['never-execute-synthetic-adapter'], provider_id: 'synthetic', model_id: 'synthetic',
+    revision: '1', max_output_tokens: 100, timeout_seconds: 5,
+    input_usd_per_million: 1, output_usd_per_million: 2, glossary_scope: 'relevant',
+  }));
+  const result = runLanguage({ bundle: f.input, glossary: f.glossary, out: f.out, providerConfig: config });
+  assert.equal(result.status, 2);
+  const m = JSON.parse(readFileSync(f.out + '.details/metrics.json', 'utf8'));
+  assert.equal(m.provider_requests, 0);
+  assert.equal(m.provider_failures, 0);
+  assert.equal(m.cost_usd_total, 0);
+  assert.equal(m.budget_forecast.uncached_records, 1);
+  assert.ok(m.budget_forecast.uncached_reserved_cost_usd > 0);
+  assert.ok(m.budget_forecast.selected_glossary_bytes < m.budget_forecast.full_glossary_bytes);
+  const event = JSON.parse(readFileSync(f.out + '.details/events.jsonl', 'utf8').trim());
+  assert.equal(event.glossary_selection.selected_entries, 1);
+  assert.equal(event.glossary_selection.omitted_entries, 1);
+});
